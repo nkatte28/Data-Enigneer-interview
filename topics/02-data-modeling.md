@@ -44,12 +44,17 @@ Before diving into data modeling, it's important to understand the different typ
 
 | Feature | Database (OLTP) | Data Warehouse (OLAP) | Data Lake | Delta Lake |
 |---------|----------------|----------------------|-----------|------------|
+| **Primary Use** | Transactions | Analytics | Raw storage | Unified analytics |
+| **Workload** | OLTP | OLAP | Mixed | Mixed |
 | **Purpose** | Stores real-time transactional data | Stores & analyzes structured data (often from a data warehouse) | Stores raw, unstructured data | Combines Data Warehouse & Data Lake functionalities |
-| **Data Type** | Structured (Tables) | Structured (Tables) | Structured, Semi-Structured, Unstructured | Structured & Semi-Structured |
-| **Schema** | Predefined (Schema-on-Write) | Predefined (Schema-on-Write) | Flexible (Schema-on-Read) | Supports Schema Evolution |
+| **Schema** | Strict (Predefined/Schema-on-Write) | Strict (Predefined/Schema-on-Write) | Flexible (Schema-on-Read) | Enforced (Supports Schema Evolution) |
+| **Data Types** | Structured (Tables) | Structured (Tables) | Any (Structured, Semi-Structured, Unstructured) | Any (Structured & Semi-Structured) |
+| **Updates** | Row-level (Fast CRUD operations) | Limited (Append-heavy, some updates) | Hard (Immutable, append-only) | Easy (MERGE operations, ACID transactions) |
+| **ACID** | Yes | Yes | No | Yes |
 | **Processing** | Fast transactions (CRUD operations: Create, Read, Update, Delete) | Fast analytics (Business Intelligence, Reporting) | Big Data Processing | Streaming + Batch Processing |
 | **Query Performance** | Fast for small queries | Optimized for Aggregations | Slower (due to raw data) | Faster Queries (Indexed) |
-| **Cost** | Moderate | High | Low (storage is cheap) | Optimized cost-performance |
+| **Cost** | Medium | High | Low (storage is cheap) | Low–Medium (Optimized cost-performance) |
+| **Modeling** | ER (Entity-Relationship, Normalized) | Star/Snowflake (Dimensional) | None (Less formal, partitioning-focused) | Star on top (Dimensional modeling with schema evolution) |
 | **Examples** | MySQL, PostgreSQL, MongoDB | Snowflake, Redshift, BigQuery | AWS S3, Azure Data Lake | Databricks, Delta Lake |
 
 #### Database (OLTP) - Online Transaction Processing
