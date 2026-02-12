@@ -40,7 +40,7 @@ By the end of this topic, you should be able to:
 
 Data modeling employs a layered approach, progressing from abstract to concrete:
 
-#### Conceptual Data Models (Domain Models)
+#### 2.1 Conceptual Data Models (Domain Models)
 
 **Purpose**: High-level, big-picture view of what the system will contain
 
@@ -69,7 +69,7 @@ Attributes:
   - Product: name, price, category
 ```
 
-#### Logical Data Models
+#### 2.2 Logical Data Models
 
 **Purpose**: Detailed representation of data structures without technical implementation details
 
@@ -110,7 +110,7 @@ Order Table:
 - Reporting system development
 - Often skipped in agile/DevOps practices
 
-#### Physical Data Models
+#### 2.3 Physical Data Models
 
 **Purpose**: Schema for how data will be physically stored in a database
 
@@ -288,7 +288,7 @@ OrderSummary: order_id, customer_name, order_date, product_name, quantity, price
 
 Data modeling has evolved with database management systems:
 
-#### Relational Data Models
+#### 4.1 Relational Data Models
 
 **History**: Proposed by IBM researcher E.F. Codd in 1970
 
@@ -324,7 +324,7 @@ CREATE TABLE orders (
 
 **SQL**: Relational databases use Structured Query Language (SQL)
 
-#### Entity-Relationship (ER) Data Models
+#### 4.2 Entity-Relationship (ER) Data Models
 
 **Purpose**: Visual representation of database structure
 
@@ -349,7 +349,7 @@ CREATE TABLE orders (
     M                          N
 ```
 
-#### Dimensional Data Models
+#### 4.3 Dimensional Data Models
 
 **History**: Developed by Ralph Kimball for data warehouses
 
@@ -371,7 +371,7 @@ CREATE TABLE orders (
 - Analytics dashboards
 - Reporting systems
 
-#### Star Schema
+#### 4.4 Star Schema
 
 **Structure**: Central fact table surrounded by dimension tables
 
@@ -422,7 +422,7 @@ Dimension Tables:
 - Storage overhead
 - Harder to maintain consistency
 
-#### Snowflake Schema
+#### 4.5 Snowflake Schema
 
 **Structure**: Normalized star schema with hierarchical dimensions
 
@@ -491,7 +491,7 @@ Dimension Tables:
 - Storage is a concern
 - Dimension data changes frequently
 
-#### Hierarchical Data Models
+#### 4.6 Hierarchical Data Models
 
 **Structure**: Tree-like format representing one-to-many relationships
 
@@ -509,7 +509,7 @@ Dimension Tables:
 
 **Example**: IBM Information Management System (IMS) - introduced 1966
 
-#### Object-Oriented Data Models
+#### 4.7 Object-Oriented Data Models
 
 **History**: Gained traction in mid-1990s with OOP popularity
 
@@ -525,7 +525,7 @@ Dimension Tables:
 - Complex data structures
 - Object-oriented applications
 
-#### One Big Table (OBT) / Wide Table Approach
+#### 4.8 One Big Table (OBT) / Wide Table Approach
 
 **Purpose**: Denormalize everything into a single wide table
 
