@@ -19,6 +19,7 @@ DataEngineerInterviewPrep/
 │   └── 09-behavioral.md
 ├── practice-questions/       # Interview questions & solutions
 │   ├── system-design/
+│   ├── data-modeling/
 │   ├── sql/
 │   ├── python/
 │   └── behavioral/
@@ -63,9 +64,10 @@ DataEngineerInterviewPrep/
 ## 🚀 Getting Started
 
 1. Start with `topics/01-system-design.md`
-2. Read through concepts and examples
-3. Practice questions in `practice-questions/`
-4. Track your progress in `notes/progress-tracker.md`
+2. Move to `topics/02-data-modeling.md` for data modeling fundamentals
+3. Read through concepts and examples
+4. Practice questions in `practice-questions/`
+5. Track your progress in `notes/progress-tracker.md`
 
 ## 📝 Study Approach
 

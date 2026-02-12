@@ -22,21 +22,25 @@
 ---
 
 ### 2. "The Data Warehouse Toolkit" by Ralph Kimball
-**Priority**: ⭐⭐⭐⭐ (Highly Recommended)
+**Priority**: ⭐⭐⭐⭐⭐ (Must Read for Data Modeling)
 
 **Why**: Essential for data modeling interviews. Covers:
 - Dimensional modeling
 - Star schema design
 - Slowly Changing Dimensions (SCD)
 - ETL architecture
+- Fact and dimension table design
 
 **Key Chapters for Interview**:
 - Chapter 1: Data Warehousing, Business Intelligence, and Dimensional Modeling Primer
 - Chapter 2: Kimball Dimensional Modeling Techniques Overview
 - Chapter 6: Order Management
 - Chapter 9: ETL Subsystems and Techniques
+- Chapter 13: Slowly Changing Dimensions
 
 **Reading Time**: 1-2 weeks
+
+**Note**: This is THE definitive guide for dimensional modeling interviews
 
 ---
 
@@ -82,6 +86,30 @@
 - Stream processing fundamentals
 - Watermarks and triggers
 - Windowing strategies
+
+### 6. "Data Modeling Made Simple" by Steve Hoberman
+**Priority**: ⭐⭐⭐⭐ (Highly Recommended for Data Modeling)
+
+**Why**: Practical guide to data modeling concepts and techniques.
+
+**Key Topics**:
+- Conceptual, logical, and physical modeling
+- Normalization
+- Entity-relationship modeling
+- Data modeling best practices
+
+**Reading Time**: 1 week
+
+### 7. "Data Modeling Essentials" by Graeme Simsion
+**Priority**: ⭐⭐⭐ (Good Reference)
+
+**Why**: Comprehensive textbook on data modeling theory and practice.
+
+**Key Topics**:
+- Data modeling fundamentals
+- Normalization theory
+- Database design principles
+- Real-world case studies
 
 ---
 
