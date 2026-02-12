@@ -36,6 +36,128 @@ By the end of this topic, you should be able to:
 
 ---
 
+### 1.1 Understanding Data Storage Systems: Database, Data Warehouse, Data Lake, and Delta Lake
+
+Before diving into data modeling, it's important to understand the different types of data storage systems and their characteristics. Each system serves different purposes and requires different modeling approaches.
+
+#### Comparison Table: Database (OLTP) vs Data Warehouse (OLAP) vs Data Lake vs Delta Lake
+
+| Feature | Database (OLTP) | Data Warehouse (OLAP) | Data Lake | Delta Lake |
+|---------|----------------|----------------------|-----------|------------|
+| **Purpose** | Stores real-time transactional data | Stores & analyzes structured data (often from a data warehouse) | Stores raw, unstructured data | Combines Data Warehouse & Data Lake functionalities |
+| **Data Type** | Structured (Tables) | Structured (Tables) | Structured, Semi-Structured, Unstructured | Structured & Semi-Structured |
+| **Schema** | Predefined (Schema-on-Write) | Predefined (Schema-on-Write) | Flexible (Schema-on-Read) | Supports Schema Evolution |
+| **Processing** | Fast transactions (CRUD operations: Create, Read, Update, Delete) | Fast analytics (Business Intelligence, Reporting) | Big Data Processing | Streaming + Batch Processing |
+| **Query Performance** | Fast for small queries | Optimized for Aggregations | Slower (due to raw data) | Faster Queries (Indexed) |
+| **Cost** | Moderate | High | Low (storage is cheap) | Optimized cost-performance |
+| **Examples** | MySQL, PostgreSQL, MongoDB | Snowflake, Redshift, BigQuery | AWS S3, Azure Data Lake | Databricks, Delta Lake |
+
+#### Database (OLTP) - Online Transaction Processing
+
+**Purpose**: Handle day-to-day operational transactions
+
+**Key Characteristics**:
+- **Schema-on-Write**: Schema must be defined before data insertion
+- **ACID Compliance**: Ensures data integrity for transactions
+- **Normalized Structure**: Reduces redundancy, ensures consistency
+- **Fast CRUD Operations**: Optimized for Create, Read, Update, Delete
+- **Row-Oriented Storage**: Efficient for transactional queries
+
+**Use Cases**:
+- E-commerce order processing
+- Banking transactions
+- User account management
+- Inventory management
+
+**Data Modeling Approach**: Normalized relational model (3NF)
+
+#### Data Warehouse (OLAP) - Online Analytical Processing
+
+**Purpose**: Store and analyze historical data for business intelligence
+
+**Key Characteristics**:
+- **Schema-on-Write**: Structured schema enforced on ingestion
+- **Columnar Storage**: Optimized for analytical queries
+- **Denormalized Structure**: Star/Snowflake schemas for faster queries
+- **Historical Data**: Stores time-series data for trend analysis
+- **Pre-aggregated Data**: Materialized views for common queries
+
+**Use Cases**:
+- Business intelligence dashboards
+- Sales analytics and reporting
+- Financial reporting
+- Trend analysis
+
+**Data Modeling Approach**: Dimensional modeling (Star/Snowflake schema)
+
+#### Data Lake
+
+**Purpose**: Store raw data in its native format for future processing
+
+**Key Characteristics**:
+- **Schema-on-Read**: Schema applied when querying, not on ingestion
+- **Flexible Storage**: Handles structured, semi-structured, and unstructured data
+- **Cost-Effective**: Cheap storage (object storage like S3)
+- **Scalable**: Handles petabytes of data
+- **Raw Data**: Stores data as-is without transformation
+
+**Use Cases**:
+- Raw data ingestion
+- Data exploration and discovery
+- Machine learning and AI workloads
+- Long-term data archival
+- Big data processing
+
+**Data Modeling Approach**: Less formal modeling, focuses on data organization and partitioning
+
+#### Delta Lake
+
+**Purpose**: Combine the flexibility of data lakes with the reliability of data warehouses
+
+**Key Characteristics**:
+- **Schema Evolution**: Can evolve schema over time
+- **ACID Transactions**: Ensures data consistency
+- **Time Travel**: Query historical versions of data
+- **Unified Batch & Streaming**: Handles both batch and real-time processing
+- **Indexed Queries**: Faster query performance than traditional data lakes
+- **Open Format**: Built on open-source Parquet format
+
+**Use Cases**:
+- Modern data lakehouse architecture
+- Streaming analytics
+- Data engineering pipelines
+- ML feature stores
+
+**Data Modeling Approach**: Supports both normalized and dimensional models, with schema evolution capabilities
+
+#### When to Use Each System
+
+**Use Database (OLTP)** when:
+- You need real-time transaction processing
+- Data integrity is critical (ACID compliance)
+- You're handling operational workloads
+- Queries are simple and fast
+
+**Use Data Warehouse (OLAP)** when:
+- You need business intelligence and analytics
+- You're analyzing historical trends
+- You need fast aggregations and reporting
+- Data is structured and well-defined
+
+**Use Data Lake** when:
+- You're ingesting raw data from multiple sources
+- You need cost-effective storage for large volumes
+- Data structure is unknown or changing
+- You're doing data exploration and ML
+
+**Use Delta Lake** when:
+- You need both flexibility and reliability
+- You're building modern data lakehouse architecture
+- You need schema evolution capabilities
+- You're processing both batch and streaming data
+
+---
+
 ### 2. Different Levels of Data Models
 
 Data modeling employs a layered approach, progressing from abstract to concrete:
