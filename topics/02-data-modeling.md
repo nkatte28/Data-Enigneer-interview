@@ -1759,7 +1759,7 @@ WHERE customer_id = 101
 ## 🎯 Next Steps
 
 Once you're comfortable with this topic, we'll move to:
-- **Topic 3: Advanced SQL** (Window Functions, CTEs, Optimization)
+- **Topic 3: Data File Formats** (ORC, Parquet, Avro, JSON, CSV)
 
 **Study Time**: Spend 3-4 days on this topic, practice designing schemas, then let me know when you're ready to move on!
 
