@@ -1046,6 +1046,8 @@ Assume:
 - **dim** = existing dimension (e.g. customer: `customer_id`, `name`, `city`)
 - **updates** = new or changed rows (same key, maybe new `city`)
 
+**Note:** Type 2 and Type 3 are **merge-style** operations: match on the business key, then either update existing rows (e.g. set `is_current = false`, `expiry_date`) or insert new rows. Below we do that with joins + unions; in **Databricks** you do the same with Delta Lake **MERGE**.
+
 ```python
 from pyspark.sql import functions as F
 ```
@@ -1124,8 +1126,132 @@ result_type3 = unchanged.union(updated)
 | Type | Idea |
 |------|------|
 | **Type 1** | `unchanged = dim.left_anti(updates)` then `unchanged.union(updates)` |
-| **Type 2** | Expire current row, add new row with new dates and `is_current=True` |
-| **Type 3** | Join dim + updates; set current = new value, previous = old value |
+| **Type 2** | Merge-style: expire current row, insert new row with new dates and `is_current=True` |
+| **Type 3** | Merge-style: join dim + updates; set current = new value, previous = old value |
+
+---
+
+#### How Databricks (Delta Lake) Solves SCD
+
+Databricks uses **Delta Lake** and a single **MERGE** statement to do SCD in one atomic operation. No manual join/union; the engine applies “when matched” / “when not matched” rules.
+
+**Setup:** Dimension table is a **Delta table** (e.g. path `/path/to/dim_customer` or `spark.table("dim_customer")`). **Source** = DataFrame or table with new/changed rows.
+
+---
+
+**SCD Type 1 in Databricks (MERGE – overwrite)**
+
+Match on key; if matched, overwrite all columns; if not matched, insert.
+
+```python
+from delta.tables import DeltaTable
+
+dim_path = "/path/to/dim_customer"   # or use table name
+dim_delta = DeltaTable.forPath(spark, dim_path)
+
+dim_delta.alias("target").merge(
+    updates.alias("source"),
+    "target.customer_id = source.customer_id"
+).whenMatchedUpdateAll() \
+ .whenNotMatchedInsertAll() \
+ .execute()
+```
+
+**Same in SQL (Databricks SQL):**
+```sql
+MERGE INTO delta.`/path/to/dim_customer` AS target
+USING updates AS source
+ON target.customer_id = source.customer_id
+WHEN MATCHED THEN UPDATE SET *
+WHEN NOT MATCHED THEN INSERT *;
+```
+
+---
+
+**SCD Type 2 in Databricks (MERGE – expire + insert)**
+
+Match on **key + is_current = true**. If matched, **update** that row (set `expiry_date`, `is_current = false`). Then **insert** the new version (new `effective_date`, `is_current = true`). So one MERGE does both “expire” and “add new row”.
+
+```python
+from delta.tables import DeltaTable
+
+dim_delta = DeltaTable.forPath(spark, dim_path)
+
+# Source must have: customer_id, name, city (and we add effective_date, is_current in the insert)
+from pyspark.sql import functions as F
+updates_with_dates = updates.withColumn("effective_date", F.current_date()) \
+                            .withColumn("expiry_date", F.lit(None).cast("date")) \
+                            .withColumn("is_current", F.lit(True))
+
+dim_delta.alias("target").merge(
+    updates_with_dates.alias("source"),
+    "target.customer_id = source.customer_id AND target.is_current = True"
+).whenMatchedUpdate(set={
+    "expiry_date": F.current_date(),
+    "is_current": F.lit(False)
+}).whenNotMatchedInsertAll() \
+ .execute()
+```
+
+**Same in SQL (Databricks SQL):**
+```sql
+MERGE INTO delta.`/path/to/dim_customer` AS target
+USING (
+  SELECT customer_id, name, city,
+         current_date() AS effective_date,
+         cast(null AS date) AS expiry_date,
+         true AS is_current
+  FROM updates
+) AS source
+ON target.customer_id = source.customer_id AND target.is_current = true
+WHEN MATCHED THEN
+  UPDATE SET expiry_date = current_date(), is_current = false
+WHEN NOT MATCHED THEN INSERT *;
+```
+
+---
+
+**SCD Type 3 in Databricks (MERGE – current + previous column)**
+
+Match on key; if matched and value changed, update row: set `city = source.city`, `previous_city = target.city`. If not matched, insert.
+
+```python
+dim_delta.alias("target").merge(
+    updates.alias("source"),
+    "target.customer_id = source.customer_id"
+).whenMatchedUpdate(
+    condition="target.city != source.city",
+    set={
+        "city": F.col("source.city"),
+        "previous_city": F.col("target.city")
+    }
+).whenNotMatchedInsertAll() \
+ .execute()
+```
+
+**Same in SQL (Databricks SQL):**
+```sql
+MERGE INTO delta.`/path/to/dim_customer` AS target
+USING updates AS source
+ON target.customer_id = source.customer_id
+WHEN MATCHED AND target.city != source.city THEN
+  UPDATE SET city = source.city, previous_city = target.city
+WHEN NOT MATCHED THEN INSERT *;
+```
+
+---
+
+**Why use Databricks/Delta for SCD?**
+
+| Aspect | Plain Spark (join + union) | Databricks Delta MERGE |
+|--------|----------------------------|-------------------------|
+| **Atomicity** | Multiple writes | Single atomic MERGE |
+| **Consistency** | Careful ordering needed | ACID guarantees |
+| **Performance** | Full read + full write | Only affected partitions/files |
+| **Concurrency** | Risk of overwrites | Optimistic concurrency |
+| **Time travel** | No | Yes (e.g. rollback, audit) |
+
+So for Type 2 and Type 3 you are doing a **merge**: match on key (and for Type 2, `is_current`), then update and/or insert. Databricks implements that with Delta Lake **MERGE** in one step.
 
 ---
 
