@@ -92,7 +92,18 @@ The choice of file format significantly impacts:
 - Common metadata: **min/max** per column per block, **null counts**, sometimes **bloom filters**.
 - The engine (or the format reader) uses this metadata to **skip files, row groups, or stripes** before reading actual column data.
 
-**How it relates to predicate pushdown**
+**How data skipping differs from predicate pushdown**
+
+| | Predicate pushdown | Data skipping |
+|---|--------------------|----------------|
+| **What it is** | A **technique**: sending the filter (predicate) *down* to the storage layer instead of applying it only in the engine. | An **outcome**: not reading data that can’t match the query (skipping files, row groups, or stripes). |
+| **Focus** | *Where* the filter is applied (at scan/read time, close to the data). | *What* we achieve (less I/O by skipping irrelevant data). |
+| **Scope** | Specifically about **filters** (e.g. `WHERE`, join conditions) being pushed to the reader. | Can include **any** use of metadata to skip data: filters (via pushdown), **partition pruning**, **file listing** (e.g. skip by path), etc. |
+| **Analogy** | “Give the storage layer the filter so it can decide what to read.” | “We skipped 80% of row groups” — the result of that decision. |
+
+So: **predicate pushdown** is the *mechanism* (push predicate to storage); **data skipping** is the *effect* (skip blocks/rows using metadata). Predicate pushdown is one way to get data skipping; data skipping can also come from partition pruning or other metadata-based skipping without a pushed predicate.
+
+**How it relates in practice**
 - Predicate pushdown is the **mechanism**: “push the predicate down to the storage layer.”
 - Data skipping is the **effect**: “skip blocks/rows that don’t match the predicate using metadata.”
 - So **predicate pushdown enables data skipping** when the format stores the right statistics (e.g. Parquet row group stats, ORC stripe stats).
