@@ -491,7 +491,7 @@ So: **predicate pushdown** is the *mechanism* (push predicate to storage); **dat
 ## 🎯 Next Steps
 
 Once you're comfortable with file formats, move on to:
-- **Topic 4: Advanced SQL** (or next topic in your study plan)
+- **Topic 4: Data Pipeline Design and Implementation**
 
 **Study Time**: Spend 1–2 days on this topic, then practice choosing formats in design scenarios.
 

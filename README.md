@@ -11,13 +11,14 @@ DataEngineerInterviewPrep/
 │   ├── 01-system-design.md
 │   ├── 02-data-modeling.md
 │   ├── 03-file-formats.md
-│   ├── 04-advanced-sql.md
-│   ├── 05-python-data-engineering.md
-│   ├── 06-etl-elt-pipelines.md
-│   ├── 07-realtime-processing.md
-│   ├── 08-aws-services.md
-│   ├── 09-data-quality.md
-│   └── 10-behavioral.md
+│   ├── 04-data-pipeline-design.md
+│   ├── 05-advanced-sql.md
+│   ├── 06-python-data-engineering.md
+│   ├── 07-etl-elt-pipelines.md
+│   ├── 08-realtime-processing.md
+│   ├── 09-aws-services.md
+│   ├── 10-data-quality.md
+│   └── 11-behavioral.md
 ├── practice-questions/       # Interview questions & solutions
 │   ├── system-design/
 │   ├── data-modeling/
@@ -67,9 +68,10 @@ DataEngineerInterviewPrep/
 1. Start with `topics/01-system-design.md`
 2. Move to `topics/02-data-modeling.md` for data modeling fundamentals
 3. Then `topics/03-file-formats.md` for data file formats (ORC, Parquet, Avro, JSON, CSV)
-4. Read through concepts and examples
-5. Practice questions in `practice-questions/`
-6. Track your progress in `notes/progress-tracker.md`
+4. Then `topics/04-data-pipeline-design.md` for pipeline design and implementation
+5. Read through concepts and examples
+6. Practice questions in `practice-questions/`
+7. Track your progress in `notes/progress-tracker.md`
 
 ## 📝 Study Approach
 
