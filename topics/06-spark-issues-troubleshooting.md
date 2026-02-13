@@ -1,4 +1,4 @@
-# Topic 5: Spark Issues and Troubleshooting
+# Topic 6: Spark Issues and Troubleshooting
 
 ## 🎯 Learning Goals
 
@@ -1304,7 +1304,7 @@ spark.conf.set("spark.executor.extraJavaOptions",
 ## 🎯 Next Steps
 
 Once you're comfortable with Spark troubleshooting, move on to:
-- **Topic 6: Advanced SQL** (or next topic in your study plan)
+- **Topic 7: Advanced SQL** (or next topic in your study plan)
 
 **Study Time**: Spend 2-3 days on this topic, practice troubleshooting scenarios.
 
