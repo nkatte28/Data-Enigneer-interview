@@ -4,8 +4,10 @@
 
 By the end of this topic, you should be able to:
 - Understand key data file formats: ORC, Parquet, Avro, JSON, and CSV
+- Explain **row-based vs column-based** storage and why **row = faster writes**, **column = faster reads**
+- Describe **predicate pushdown** and **data skipping** and how they improve query performance
+- Compare **compression types** (e.g. Snappy, GZIP, LZ4) and when to use each
 - Choose the right format for storage, streaming, analytics, and exchange
-- Compare columnar vs row-based formats and when to use each
 - Explain schema evolution support across formats
 - Apply compression and performance trade-offs in practice
 
@@ -23,7 +25,118 @@ The choice of file format significantly impacts:
 
 ---
 
-### 2. Comparison Table: File Formats Overview
+### 2. Key Concepts: Row vs Column, Predicate Pushdown, Compression, Data Skipping
+
+#### Row-based vs column-based storage
+
+**Row-based storage**
+- Data is stored **one row at a time**: all columns for a row are stored together, then the next row, and so on.
+- **Example:** Row 1: `[id=1, name=Alice, city=NYC, age=30]` → Row 2: `[id=2, name=Bob, city=LA, age=25]` → …
+- **Good for:** Reading or writing **full rows** (e.g. one customer record, one event).
+- **Used by:** Avro, CSV, traditional relational row stores.
+
+**Column-based (columnar) storage**
+- Data is stored **one column at a time**: all values for column A, then all values for column B, etc.
+- **Example:** `id: [1,2,3,...]` then `name: [Alice,Bob,...]` then `city: [NYC,LA,...]` then `age: [30,25,...]`.
+- **Good for:** Reading **a subset of columns** or aggregating one column (e.g. `SUM(amount)`, `WHERE region = 'US'`).
+- **Used by:** Parquet, ORC.
+
+---
+
+#### Why row-based = faster writes, column-based = faster reads
+
+**Row-based → faster writes**
+- **One row = one write unit.** To insert a record you append one contiguous block (all columns for that row).
+- No need to touch every column file; minimal seeks and I/O per row.
+- **Streaming / transactional workloads** often write full rows → row-based is a natural fit (e.g. Avro, Kafka).
+
+**Column-based → faster reads (for analytics)**
+- **One column = one read unit.** A query like `SELECT SUM(revenue) WHERE year = 2024` only needs:
+  - The `revenue` column (and maybe `year` for filtering).
+- You **skip entire columns** you don’t need → less I/O and better cache use.
+- Same column values are stored together → **better compression** (repeated patterns) and **vectorized execution**.
+- **Analytical queries** often need few columns and many rows → column-based wins (e.g. Parquet, ORC).
+
+**Summary**
+
+| Operation     | Row-based        | Column-based     |
+|--------------|------------------|------------------|
+| **Write one row** | ✅ Fast (one block) | ❌ Slower (update many column chunks) |
+| **Read few columns** | ❌ Read full rows   | ✅ Read only those columns |
+| **Aggregations**   | ❌ Scan full rows   | ✅ Scan only needed columns |
+
+---
+
+#### Predicate pushdown
+
+**What it means**
+- **Predicate pushdown** = pushing **filter conditions down** to the storage layer (file format / reader) so that:
+  - Only **rows (or row groups) that can satisfy the filter** are read and passed to the engine.
+- The query engine says: “I only need rows where `region = 'US'` and `year >= 2023`.”  
+  The file format (e.g. Parquet, ORC) uses **metadata (min/max, statistics)** and **skips** row groups or stripes that cannot contain such rows.
+
+**Why it helps**
+- Less data read from disk → **faster queries** and lower I/O cost.
+- Works best when the format stores **per-block (or per-stripe) statistics** (e.g. min/max per column). Parquet and ORC both support this; ORC is often cited as having strong predicate pushdown.
+
+**Example**
+- Query: `SELECT * FROM sales WHERE date = '2024-01-15'`.
+- With predicate pushdown: the reader checks each Parquet row group’s (or ORC stripe’s) min/max for `date`; if `'2024-01-15'` is not in that range, the **entire block is skipped** and not read.
+
+---
+
+#### Data skipping
+
+**What it means**
+- **Data skipping** = avoiding reading **data that cannot contribute to the result**, using **metadata** (statistics) stored with the data.
+- Common metadata: **min/max** per column per block, **null counts**, sometimes **bloom filters**.
+- The engine (or the format reader) uses this metadata to **skip files, row groups, or stripes** before reading actual column data.
+
+**How it relates to predicate pushdown**
+- Predicate pushdown is the **mechanism**: “push the predicate down to the storage layer.”
+- Data skipping is the **effect**: “skip blocks/rows that don’t match the predicate using metadata.”
+- So **predicate pushdown enables data skipping** when the format stores the right statistics (e.g. Parquet row group stats, ORC stripe stats).
+
+**Example**
+- Table partitioned by `date`, stored as Parquet with row group statistics.
+- Query: `WHERE amount > 1000`.
+- Engine uses **min/max of `amount`** in each row group: if `max(amount) < 1000` in a row group, that whole row group is **skipped** (data skipping via predicate pushdown).
+
+---
+
+#### Compression types and what Snappy means
+
+**Why compress**
+- **Smaller files** → less storage, less I/O, often **faster** reads (and sometimes writes) when the cost of decompression is less than the I/O saved.
+
+**Common compression types**
+
+| Compression   | Speed        | Ratio   | Typical use                          |
+|---------------|-------------|--------|--------------------------------------|
+| **None**      | Fastest     | 1x     | When I/O is cheap or data already small |
+| **Snappy**    | Fast        | Good   | Default in Parquet; balance of speed and size |
+| **GZIP**      | Slower      | Better | When storage matters more than CPU   |
+| **LZ4**       | Very fast   | Good   | Low-latency, fast decompression      |
+| **ZSTD**      | Configurable| Better| Newer format; good ratio and speed    |
+| **Brotli**    | Slower      | High   | When max compression is desired      |
+
+**What Snappy compression means**
+- **Snappy** is a **fast** compression algorithm (by Google):
+  - **Fast encode and decode** → low CPU overhead, good for interactive and batch workloads.
+  - **Moderate compression ratio** → smaller than no compression, but not as small as GZIP or ZSTD at high levels.
+- **Parquet** often uses Snappy by default so that:
+  - Files are smaller than uncompressed and I/O is reduced.
+  - Compression/decompression stays cheap so that **scan speed** and **query latency** remain good.
+- Trade-off: Snappy favors **speed over maximum compression**; for colder data you can switch to GZIP or ZSTD for better ratio.
+
+**In file formats**
+- **Parquet:** Often Snappy by default; can use GZIP, LZ4, ZSTD, etc. per column.
+- **ORC:** Uses internal compression (e.g. Zlib); typically high ratio.
+- **Avro:** Supports codecs like Snappy, Deflate (GZIP); medium ratio, good for streaming.
+
+---
+
+### 3. Comparison Table: File Formats Overview
 
 | File Format | Type | Best For | Supports Schema Evolution? | Compression |
 |-------------|------|----------|---------------------------|-------------|
@@ -35,7 +148,7 @@ The choice of file format significantly impacts:
 
 ---
 
-### 3. ORC (Optimized Row Columnar)
+### 4. ORC (Optimized Row Columnar)
 
 **Best For**: Apache Hive, ACID Transactions in Hive
 
@@ -69,7 +182,7 @@ The choice of file format significantly impacts:
 
 ---
 
-### 4. Parquet
+### 5. Parquet
 
 **Best For**: Cloud-based Data Warehouses (Snowflake, Redshift, BigQuery, Databricks)
 
@@ -111,7 +224,7 @@ The choice of file format significantly impacts:
 
 ---
 
-### 5. Avro
+### 6. Avro
 
 **Best For**: Streaming, Kafka, Schema Evolution
 
@@ -155,7 +268,7 @@ The choice of file format significantly impacts:
 
 ---
 
-### 6. JSON (JavaScript Object Notation)
+### 7. JSON (JavaScript Object Notation)
 
 **Best For**: Semi-Structured Data, API Logs
 
@@ -190,7 +303,7 @@ The choice of file format significantly impacts:
 
 ---
 
-### 7. CSV (Comma-Separated Values)
+### 8. CSV (Comma-Separated Values)
 
 **Best For**: Small Datasets & Data Exchange
 
