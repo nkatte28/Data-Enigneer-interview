@@ -5,7 +5,7 @@
 By the end of this topic, you should be able to:
 - Understand key data file formats: ORC, Parquet, Avro, JSON, and CSV
 - Explain **row-based vs column-based** storage and why **row = faster writes**, **column = faster reads**
-- Describe **predicate pushdown** and **data skipping** and how they improve query performance
+- Describe **predicate pushdown**, **data skipping**, and **partition pruning** and how they improve query performance
 - Compare **compression types** (e.g. Snappy, GZIP, LZ4) and when to use each
 - Choose the right format for storage, streaming, analytics, and exchange
 - Explain schema evolution support across formats
@@ -112,6 +112,34 @@ So: **predicate pushdown** is the *mechanism* (push predicate to storage); **dat
 - Table partitioned by `date`, stored as Parquet with row group statistics.
 - Query: `WHERE amount > 1000`.
 - Engine uses **min/max of `amount`** in each row group: if `max(amount) < 1000` in a row group, that whole row group is **skipped** (data skipping via predicate pushdown).
+
+---
+
+#### Partition pruning
+
+**What it means**
+- **Partition pruning** = not reading **entire partitions** that cannot contain rows matching the query.
+- Data is stored in a **partitioned layout** (e.g. by date, region): each partition is a separate directory or set of files (e.g. `year=2024/month=01/day=15/`).
+- The engine looks at the query filter (e.g. `WHERE date = '2024-01-15'`) and **lists only the partition paths** that can match; it never opens other partition directories. That’s partition pruning.
+
+**How it works**
+- **Partition columns** are usually in the path or in metadata (e.g. `date=2024-01-15`).
+- Query has a predicate on the partition column → engine converts it to a **list of partition paths** and only reads those.
+- No need to open every file: **whole partitions are skipped** at the directory/metadata level, before reading any row data.
+
+**Example**
+- Layout: `s3://bucket/events/year=2024/month=01/day=01/`, `.../day=02/`, …, `.../day=31/`.
+- Query: `SELECT * FROM events WHERE year = 2024 AND month = 1 AND day = 15`.
+- With partition pruning: only `.../year=2024/month=01/day=15/` is read; all other `day=*` directories are **skipped** (no listing, no scan).
+
+**How it relates to predicate pushdown and data skipping**
+- **Predicate pushdown** can push the partition-column filter down so the **catalog or file listing** only returns matching partition paths → that’s partition pruning.
+- **Data skipping** = “skip data that can’t match.” Partition pruning is a form of data skipping: we skip **whole partitions** using partition metadata (path/metadata), not per-block stats. So:
+  - **Partition pruning** = data skipping at the **partition** level (skip entire partition dirs).
+  - **Predicate pushdown on non-partition columns** = data skipping at **row group / stripe** level (skip blocks within a partition).
+
+**Best practice**
+- Put frequently filtered columns (e.g. `date`, `region`) in the **partition key** so the engine can prune whole partitions and read far less data.
 
 ---
 
