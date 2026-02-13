@@ -1040,6 +1040,95 @@ customer_id | name | current_city | previous_city | effective_date | is_current
 
 ---
 
+#### Implementing SCD Types with PySpark (Simple Examples)
+
+Assume:
+- **dim** = existing dimension (e.g. customer: `customer_id`, `name`, `city`)
+- **updates** = new or changed rows (same key, maybe new `city`)
+
+```python
+from pyspark.sql import functions as F
+```
+
+---
+
+**SCD Type 1: Overwrite**
+
+Replace old row with new row. No history.
+
+```python
+# Keep rows that are NOT in updates, then add all updates
+unchanged = dim.join(updates.select("customer_id"), "customer_id", "left_anti")
+result_type1 = unchanged.union(updates)
+```
+
+---
+
+**SCD Type 2: Add New Row**
+
+Keep old row (mark expired), add new row for same key.
+
+```python
+# Dimension has: customer_id, name, city, effective_date, expiry_date, is_current
+today = F.current_date()
+ids_to_update = updates.select("customer_id").distinct()
+
+# 1) Expire current rows that are in updates
+expired = dim.filter(F.col("is_current") == True) \
+             .join(ids_to_update, "customer_id", "inner") \
+             .withColumn("expiry_date", today) \
+             .withColumn("is_current", F.lit(False))
+
+# 2) Rows not being updated (unchanged)
+unchanged = dim.join(ids_to_update, "customer_id", "left_anti")
+
+# 3) New rows from updates
+new_rows = updates.withColumn("effective_date", today) \
+                 .withColumn("expiry_date", F.lit(None).cast("date")) \
+                 .withColumn("is_current", F.lit(True))
+
+# 4) Put it together
+result_type2 = unchanged.union(expired).union(new_rows)
+```
+
+---
+
+**SCD Type 3: Add New Column (current + previous)**
+
+One row per key; store current value and one previous value (e.g. `city`, `previous_city`).
+
+```python
+# Join dimension with updates on customer_id
+joined = dim.join(updates.withColumnRenamed("city", "new_city"), "customer_id")
+
+# Where city changed: set current_city = new, previous_city = old
+updated = joined.filter(F.col("city") != F.col("new_city")) \
+    .select(
+        F.col("customer_id"),
+        F.col("name"),
+        F.col("new_city").alias("city"),
+        F.col("city").alias("previous_city")
+    )
+
+# Rows not in updates stay as-is (add null previous_city if needed)
+unchanged = dim.join(updates.select("customer_id"), "customer_id", "left_anti") \
+              .withColumn("previous_city", F.lit(None))
+
+result_type3 = unchanged.union(updated)
+```
+
+---
+
+**Summary**
+
+| Type | Idea |
+|------|------|
+| **Type 1** | `unchanged = dim.left_anti(updates)` then `unchanged.union(updates)` |
+| **Type 2** | Expire current row, add new row with new dates and `is_current=True` |
+| **Type 3** | Join dim + updates; set current = new value, previous = old value |
+
+---
+
 ### 8. Data Modeling Methodologies
 
 #### Kimball Methodology (Bottom-Up)
