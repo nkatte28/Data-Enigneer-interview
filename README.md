@@ -12,13 +12,14 @@ DataEngineerInterviewPrep/
 │   ├── 02-data-modeling.md
 │   ├── 03-file-formats.md
 │   ├── 04-data-pipeline-design.md
-│   ├── 05-advanced-sql.md
-│   ├── 06-python-data-engineering.md
-│   ├── 07-etl-elt-pipelines.md
-│   ├── 08-realtime-processing.md
-│   ├── 09-aws-services.md
-│   ├── 10-data-quality.md
-│   └── 11-behavioral.md
+│   ├── 05-spark-issues-troubleshooting.md
+│   ├── 06-advanced-sql.md
+│   ├── 07-python-data-engineering.md
+│   ├── 08-etl-elt-pipelines.md
+│   ├── 09-realtime-processing.md
+│   ├── 10-aws-services.md
+│   ├── 11-data-quality.md
+│   └── 12-behavioral.md
 ├── practice-questions/       # Interview questions & solutions
 │   ├── system-design/
 │   ├── data-modeling/
@@ -69,9 +70,10 @@ DataEngineerInterviewPrep/
 2. Move to `topics/02-data-modeling.md` for data modeling fundamentals
 3. Then `topics/03-file-formats.md` for data file formats (ORC, Parquet, Avro, JSON, CSV)
 4. Then `topics/04-data-pipeline-design.md` for pipeline design and implementation
-5. Read through concepts and examples
-6. Practice questions in `practice-questions/`
-7. Track your progress in `notes/progress-tracker.md`
+5. Then `topics/05-spark-issues-troubleshooting.md` for Spark troubleshooting and optimization
+6. Read through concepts and examples
+7. Practice questions in `practice-questions/`
+8. Track your progress in `notes/progress-tracker.md`
 
 ## 📝 Study Approach
 
