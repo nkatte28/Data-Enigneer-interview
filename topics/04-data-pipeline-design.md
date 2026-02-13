@@ -5,10 +5,12 @@
 By the end of this topic, you should be able to:
 - Describe a structured approach to designing and implementing data pipelines
 - Gather requirements and choose between batch vs streaming
+- Apply **pipeline design principles**: decoupling with storage, single responsibility, fault isolation, DAG design, schema/contracts, incremental vs full refresh
 - Design pipeline layers (raw, cleansed, processed) and orchestration
 - Apply error handling, monitoring, and data validation at each stage
 - Choose target storage and file formats based on access patterns
-- Apply scalability, testing, documentation, and maintenance best practices
+- **Scale pipelines**: know what to scale (ingestion, compute, storage), horizontal vs vertical, partitioning, handling skew, autoscaling, and tuning
+- Apply testing, documentation, and maintenance best practices
 - Map common tools and tech stack to pipeline components
 
 ---
@@ -69,6 +71,46 @@ Once requirements are clear, document them (source catalog, target schema, SLAs,
 
 **Idempotency and reprocessing**
 - Design so re-running a pipeline (or replaying events) does not duplicate or corrupt data (e.g. overwrite by partition, merge by key, dedupe by event id).
+
+---
+
+#### Pipeline Design Principles and Patterns
+
+**Decouple stages with storage**
+- Insert **persistent storage** (e.g. raw layer in object store or lake) between ingest and transform, and between transform and load. That way:
+  - Ingestion can run independently of downstream; if transform fails, you don’t re-pull from source.
+  - You can reprocess from raw without touching the source again.
+- Avoid “tight chains” where one job calls the next in memory with no checkpoint in between.
+
+**Single responsibility per job**
+- Each pipeline or DAG task should do **one clear thing** (e.g. “ingest source A”, “cleanse table X”, “build aggregate Y”). That makes debugging, testing, and scaling easier.
+- Split large pipelines into smaller, composable jobs that the orchestrator wires together.
+
+**Fault isolation**
+- A failure in one source or one partition should not block others. Use:
+  - **Separate tasks** per source or per partition where it makes sense.
+  - **Try/catch and reject paths** so bad data goes to quarantine and the rest continues.
+- Design so that fixing one failed slice (e.g. one day’s partition) and re-running does not require a full pipeline run.
+
+**DAG design**
+- **Fan-out then fan-in**: Ingest multiple sources in parallel (fan-out), then join or merge in a later step (fan-in). Avoid one long sequential chain.
+- **Clear dependencies**: Define task dependencies explicitly in the orchestrator; avoid hidden ordering that depends on execution order.
+- **Idempotent tasks**: Each task should be safe to re-run (same inputs → same outputs; use partition overwrite or merge keys).
+- **Bounded parallelism**: Use orchestrator concurrency limits so that too many parallel jobs don’t overload sources or the cluster.
+
+**Schema and contract design**
+- **Data contracts**: Agree on schema (column names, types, nullability) between producers and consumers; use schema registry or shared DDL where possible.
+- **Schema evolution**: Prefer **additive** changes (new optional columns, new partitions); avoid breaking renames or type changes without a migration path.
+- **Versioned outputs**: For critical datasets, consider versioning (e.g. by run date or version column) so consumers can pin to a known good version.
+
+**Incremental vs full refresh**
+- **Incremental**: Only process new or changed data (e.g. by `updated_at`, watermark, or CDC). Reduces cost and time; requires a reliable way to detect changes and idempotent merge/upsert.
+- **Full refresh**: Reprocess everything. Simpler and correct by construction; use when data is small or when incremental logic is complex or unreliable.
+- **Hybrid**: Full refresh for small dimensions; incremental for large fact tables or event streams.
+
+**Backpressure and rate limiting**
+- For **pull-based** ingestion (you query the source), respect rate limits and use backoff; consider batching or windowing to avoid overloading the source.
+- For **push-based** (Kafka, Kinesis), scale consumers and partition count so that lag stays bounded; use dead-letter queues for poison messages.
 
 ---
 
@@ -181,18 +223,85 @@ Implement checks as part of the pipeline or as separate orchestrated steps that 
 ### 7. Scalability and Performance Optimization
 
 **Design for growth**
-- Anticipate **data volume** and **concurrency** (more sources, more consumers, more frequent runs).
-- Prefer **horizontal scaling**: add workers or partitions rather than bigger single nodes.
+- Anticipate **data volume** (rows/events per day, growth rate) and **concurrency** (more sources, more consumers, more frequent runs).
+- Prefer **horizontal scaling** (add workers, partitions, or instances) over **vertical scaling** (bigger single nodes)—horizontal scales further and avoids single-point bottlenecks.
+- Plan for **2–5x** growth in volume or frequency so the pipeline doesn’t need a rewrite when usage increases.
 
-**Technology choices**
-- **Distributed processing**: e.g. **Apache Spark** for batch and micro-batch; **Flink** or **Kafka Streams** for streaming.
-- **Cloud and serverless**: Use managed services (Lambda, Glue, Dataflow, EMR, Databricks) for elasticity and less ops.
+---
 
-**Optimization**
-- **Partitioning** and **clustering** in warehouse and lake for partition pruning and faster scans.
-- **Incremental processing** where possible (only new/changed data) instead of full scans.
-- **Resource tuning**: memory, parallelism, and shuffle to avoid OOM and skew.
-- **Cost**: Right-size clusters and storage; use spot/preemptible where appropriate.
+#### What to scale: ingestion, compute, storage
+
+| Layer | What scales | How |
+|-------|-------------|-----|
+| **Ingestion** | Throughput (events/rows per second) | More connectors, more Kafka partitions / Kinesis shards, parallel pull jobs per source or partition. |
+| **Compute** | Transform speed | More Spark executors, more Flink task managers, more parallel tasks in the orchestrator; auto-scaling clusters. |
+| **Storage** | Capacity and read/write IOPS | More buckets/containers, partition count; for warehouses, more nodes or bigger warehouse size. |
+
+Scale the **bottleneck** first: measure where time is spent (ingest, transform, or load) and add capacity there before over-provisioning the rest.
+
+---
+
+#### Horizontal vs vertical scaling
+
+| | Horizontal (scale-out) | Vertical (scale-up) |
+|--|------------------------|---------------------|
+| **What** | Add more nodes/workers/partitions | Bigger CPU, memory, disk per node |
+| **Pros** | No single-node limit, better fault tolerance, pay for what you use | Simpler ops, no distributed coordination |
+| **Cons** | Coordination overhead, data distribution, more moving parts | Ceiling on single machine, single point of failure |
+| **When** | Batch (Spark, EMR), streaming (Kafka consumers), warehouses (Redshift, Snowflake) | Small pipelines, single-node DBs, dev/test |
+
+For data pipelines, **prefer horizontal**: use Spark, Flink, or managed services that add workers or partitions as load grows.
+
+---
+
+#### Partitioning for scale
+
+- **Partition keys**: Choose columns that are often used in filters (e.g. `date`, `region`, `tenant_id`) so the engine can skip entire partitions (partition pruning).
+- **Partition size**: Aim for **reasonably sized** partitions (e.g. 1–10 GB per partition in a lake, or 1 day per partition for event data). Too many tiny partitions → slow metadata and many small files; too few huge partitions → no parallelism and slow single-task runs.
+- **Write path**: Write one partition (or partition range) per task where possible so jobs can run in parallel (e.g. one Airflow task per date partition).
+- **Overwrites**: Use **partition-level overwrite** (replace only the partition(s) you processed) so runs are idempotent and don’t touch unrelated data.
+
+---
+
+#### Handling data skew
+
+- **Skew** = some keys or partitions have much more data than others → a few tasks do most of the work and the rest sit idle.
+- **Mitigations**:
+  - **Salting**: Add a random suffix to the key (e.g. `user_id || '_' || rand(0, N)`) so heavy keys are spread across multiple partitions; aggregate again if needed.
+  - **Two-phase aggregate**: First aggregate by (key + salt), then aggregate across salts to get final totals.
+  - **Split large partitions**: For known hot keys, split into sub-partitions or process in separate jobs.
+- **Monitor**: Watch task duration distribution; if a few tasks are much slower than the rest, investigate skew.
+
+---
+
+#### Autoscaling and elasticity
+
+- **Batch**: Use **ephemeral clusters** (e.g. EMR, Databricks) that spin up for the job and shut down after; or serverless (Glue, Lambda) that scale with parallelism.
+- **Streaming**: Scale **consumer count** with Kafka/Kinesis partitions (more partitions → more consumers); use **autoscaling** on Flink/Spark Streaming worker count based on lag or throughput.
+- **Orchestration**: Limit **concurrent runs** (e.g. max N jobs per pipeline or per pool) so that a burst of triggers doesn’t overload shared resources.
+
+---
+
+#### Resource and performance tuning
+
+- **Memory**: Give executors enough heap to avoid spills; tune Spark `memoryOverhead` and `executor.memory` (or equivalent) for your workload.
+- **Parallelism**: Set **shuffle partitions** (Spark) or **parallelism** (Flink) to match cluster size (e.g. 2–4x number of cores); avoid too many (small tasks) or too few (underutilization).
+- **Shuffle**: Reduce shuffle size by filtering and projecting early; use broadcast joins for small dimension tables; avoid huge skew in join keys.
+- **I/O**: Use **columnar formats** (Parquet, ORC) and **predicate pushdown** so only needed columns and row groups are read; compress and partition for storage efficiency.
+- **Cost**: Right-size clusters (don’t over-provision); use **spot/preemptible** for batch where acceptable; turn off or downsize dev/test when not in use.
+
+---
+
+#### Scaling checklist (interview-ready)
+
+1. **Measure** where time is spent (ingest vs transform vs load) and where the bottleneck is.
+2. **Scale the bottleneck**: more ingest connectors/partitions, more compute workers, or more storage/IOPS.
+3. **Partition** data by a key that matches query patterns; keep partition sizes reasonable.
+4. **Prefer horizontal scaling** (Spark, Flink, managed services) over single-node scale-up.
+5. **Handle skew** (salting, two-phase agg, split hot keys) so no single task dominates runtime.
+6. **Use incremental processing** where possible to reduce data scanned per run.
+7. **Tune resources**: memory, parallelism, shuffle; use columnar formats and predicate pushdown.
+8. **Use ephemeral or autoscaling** clusters so you don’t pay for idle capacity.
 
 ---
 
@@ -256,7 +365,7 @@ Keep docs close to code (e.g. README in repo, comments for complex logic) and up
 5. **Errors & monitoring**: Fail fast, validate at boundaries, retries, dead letter; metrics, logs, alerts, health checks.
 6. **Target**: Warehouse vs lake; format (Parquet/ORC) and partitioning; load strategy and schedule.
 7. **Quality & testing**: Unit, integration, regression, and data quality checks at each stage.
-8. **Scalability**: Horizontal scaling, distributed engines, partitioning, incremental processing.
+8. **Scalability**: What to scale (ingest/compute/storage), horizontal vs vertical, partitioning, skew handling, autoscaling, resource tuning.
 9. **Docs & maintenance**: Catalog, runbooks, monitoring, and continuous improvement.
 
 ---
