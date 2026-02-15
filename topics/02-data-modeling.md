@@ -1,4 +1,4 @@
-# Topic 2: Data Modeling
+# Topic 2: Data Modeling - The Complete Guide
 
 ## 🎯 Learning Goals
 
@@ -15,831 +15,400 @@ By the end of this topic, you should be able to:
 
 ## 📖 Core Concepts
 
-### 1. What is Data Modeling?
+### 1. What is Data Modeling? (Simple Explanation)
 
-**Definition**: Data modeling is the process of creating a visual representation of either a whole information system or parts of it to communicate connections between data points and structures.
+**Think of it like this**: If you're building a Nike store, you need a blueprint showing:
+- Where the shoes go
+- Where the apparel goes
+- How customers move through the store
+- How inventory connects to sales
 
-**Purpose**:
-- Illustrate types of data used and stored within the system
-- Show relationships among data types
-- Organize data in formats and attributes
-- Translate business requirements into database design
+**Data modeling is the blueprint for your data.**
+
+**Definition**: Data modeling is creating a visual representation of how data is organized and connected in your system.
+
+**Real-World Example - Nike Store**:
+```
+Business Question: "How do we track what Nike products customers buy?"
+
+Data Model Answer:
+- Customers table (who buys)
+- Products table (what they buy - Air Max, Jordan, etc.)
+- Sales table (the transaction - connects customer + product)
+- Stores table (where they buy - NYC, LA, etc.)
+```
 
 **Key Benefits**:
-- Reduces errors in software and database development
-- Increases consistency in documentation and system design
-- Improves application and database performance
-- Eases data mapping throughout the organization
-- Improves communication between developers and business intelligence teams
-
-**Data Model as a Blueprint**: A data model can be compared to a roadmap, an architect's blueprint, or any formal diagram that facilitates understanding of what is being designed.
+- ✅ Reduces errors (catch problems before building)
+- ✅ Improves performance (organized data = faster queries)
+- ✅ Better communication (everyone understands the structure)
+- ✅ Easier maintenance (clear structure = easier updates)
 
 ---
 
-### 1.1 Understanding Data Storage Systems: Database, Data Warehouse, Data Lake, and Delta Lake
+### 2. Facts and Dimensions: The Foundation (Nike Store Example)
 
-Before diving into data modeling, it's important to understand the different types of data storage systems and their characteristics. Each system serves different purposes and requires different modeling approaches.
+**The Simplest Way to Understand**:
 
-#### Comparison Table: Database (OLTP) vs Data Warehouse (OLAP) vs Data Lake vs Delta Lake
+Think of a **sales receipt at a Nike store**:
+- **Facts** = The numbers on the receipt (what happened)
+- **Dimensions** = The context around those numbers (who, what, when, where)
 
-| Feature | Database (OLTP) | Data Warehouse (OLAP) | Data Lake | Delta Lake |
-|---------|----------------|----------------------|-----------|------------|
-| **Primary Use** | Transactions | Analytics | Raw storage | Unified analytics |
-| **Workload** | OLTP | OLAP | Mixed | Mixed |
-| **Purpose** | Stores real-time transactional data | Stores & analyzes structured data (often from a data warehouse) | Stores raw, unstructured data | Combines Data Warehouse & Data Lake functionalities |
-| **Schema** | Strict (Predefined/Schema-on-Write) | Strict (Predefined/Schema-on-Write) | Flexible (Schema-on-Read) | Enforced (Supports Schema Evolution) |
-| **Data Types** | Structured (Tables) | Structured (Tables) | Any (Structured, Semi-Structured, Unstructured) | Any (Structured & Semi-Structured) |
-| **Updates** | Row-level (Fast CRUD operations) | Limited (Append-heavy, some updates) | Hard (Immutable, append-only) | Easy (MERGE operations, ACID transactions) |
-| **ACID** | Yes | Yes | No | Yes |
-| **Processing** | Fast transactions (CRUD operations: Create, Read, Update, Delete) | Fast analytics (Business Intelligence, Reporting) | Big Data Processing | Streaming + Batch Processing |
-| **Query Performance** | Fast for small queries | Optimized for Aggregations | Slower (due to raw data) | Faster Queries (Indexed) |
-| **Cost** | Medium | High | Low (storage is cheap) | Low–Medium (Optimized cost-performance) |
-| **Modeling** | ER (Entity-Relationship, Normalized) | Star/Snowflake (Dimensional) | None (Less formal, partitioning-focused) | Star on top (Dimensional modeling with schema evolution) |
-| **Examples** | MySQL, PostgreSQL, MongoDB | Snowflake, Redshift, BigQuery | AWS S3, Azure Data Lake | Databricks, Delta Lake |
+#### Facts (Fact Tables) - "What Happened?"
 
-#### Database (OLTP) - Online Transaction Processing
+**Facts are measurable, numeric events.**
 
-**Purpose**: Handle day-to-day operational transactions
-
-**Key Characteristics**:
-- **Schema-on-Write**: Schema must be defined before data insertion
-- **ACID Compliance**: Ensures data integrity for transactions
-- **Normalized Structure**: Reduces redundancy, ensures consistency
-- **Fast CRUD Operations**: Optimized for Create, Read, Update, Delete
-- **Row-Oriented Storage**: Efficient for transactional queries
-
-**Use Cases**:
-- E-commerce order processing
-- Banking transactions
-- User account management
-- Inventory management
-
-**Data Modeling Approach**: Normalized relational model (3NF)
-
-#### Data Warehouse (OLAP) - Online Analytical Processing
-
-**Purpose**: Store and analyze historical data for business intelligence
-
-**Key Characteristics**:
-- **Schema-on-Write**: Structured schema enforced on ingestion
-- **Columnar Storage**: Optimized for analytical queries
-- **Denormalized Structure**: Star/Snowflake schemas for faster queries
-- **Historical Data**: Stores time-series data for trend analysis
-- **Pre-aggregated Data**: Materialized views for common queries
-
-**Use Cases**:
-- Business intelligence dashboards
-- Sales analytics and reporting
-- Financial reporting
-- Trend analysis
-
-**Data Modeling Approach**: Dimensional modeling (Star/Snowflake schema)
-
-#### Data Lake
-
-**Purpose**: Store raw data in its native format for future processing
-
-**Key Characteristics**:
-- **Schema-on-Read**: Schema applied when querying, not on ingestion
-- **Flexible Storage**: Handles structured, semi-structured, and unstructured data
-- **Cost-Effective**: Cheap storage (object storage like S3)
-- **Scalable**: Handles petabytes of data
-- **Raw Data**: Stores data as-is without transformation
-
-**Use Cases**:
-- Raw data ingestion
-- Data exploration and discovery
-- Machine learning and AI workloads
-- Long-term data archival
-- Big data processing
-
-**Data Modeling Approach**: Less formal modeling, focuses on data organization and partitioning
-
-#### Delta Lake
-
-**Purpose**: Combine the flexibility of data lakes with the reliability of data warehouses
-
-**Key Characteristics**:
-- **Schema Evolution**: Can evolve schema over time
-- **ACID Transactions**: Ensures data consistency
-- **Time Travel**: Query historical versions of data
-- **Unified Batch & Streaming**: Handles both batch and real-time processing
-- **Indexed Queries**: Faster query performance than traditional data lakes
-- **Open Format**: Built on open-source Parquet format
-
-**Use Cases**:
-- Modern data lakehouse architecture
-- Streaming analytics
-- Data engineering pipelines
-- ML feature stores
-
-**Data Modeling Approach**: Supports both normalized and dimensional models, with schema evolution capabilities
-
-#### When to Use Each System
-
-**Use Database (OLTP)** when:
-- You need real-time transaction processing
-- Data integrity is critical (ACID compliance)
-- You're handling operational workloads
-- Queries are simple and fast
-
-**Use Data Warehouse (OLAP)** when:
-- You need business intelligence and analytics
-- You're analyzing historical trends
-- You need fast aggregations and reporting
-- Data is structured and well-defined
-
-**Use Data Lake** when:
-- You're ingesting raw data from multiple sources
-- You need cost-effective storage for large volumes
-- Data structure is unknown or changing
-- You're doing data exploration and ML
-
-**Use Delta Lake** when:
-- You need both flexibility and reliability
-- You're building modern data lakehouse architecture
-- You need schema evolution capabilities
-- You're processing both batch and streaming data
-
----
-
-### 2. Different Levels of Data Models
-
-Data modeling employs a layered approach, progressing from abstract to concrete:
-
-#### 2.1 Conceptual Data Models (Domain Models)
-
-**Purpose**: High-level, big-picture view of what the system will contain from a **business perspective**
+**Nike Store Example**:
+```
+Sale Receipt:
+- Sale Amount: $150
+- Quantity: 2 pairs
+- Discount: $20
+- Profit: $80
+```
 
 **Characteristics**:
-- Focus on **business concepts and rules** (WHAT, not HOW)
-- **No technical implementation details** - uses business language
-- Simple notation (often Entity-Relationship diagrams)
-- Created during initial requirements gathering with business stakeholders
-- **Independent of any technology or database system**
+- ✅ Numbers you can add, count, or average
+- ✅ Usually MANY rows (millions of sales)
+- ✅ Change frequently (new sales every day)
+- ✅ Examples: sales amount, quantity sold, profit, revenue
 
-**Components**:
-- **Entity Classes**: Types of things important for the business (e.g., Customer, Product, Order)
-- **Attributes**: Business characteristics (e.g., Customer Name, Product Price) - **no data types**
-- **Relationships**: How business entities relate (e.g., Customer places Order)
-- **Constraints**: Business rules (e.g., Order must have at least one Product)
-- **Security Requirements**: Who can access what data (business-level)
+#### Dimensions (Dimension Tables) - "Who/What/When/Where?"
 
-**Key Distinction**: Conceptual models answer "What data do we need?" not "How do we store it?"
+**Dimensions provide context about the facts.**
 
-**Example**:
+**Nike Store Example**:
 ```
-Business Entities:
-  - Customer
-  - Order  
-  - Product
+Sale Receipt Context:
+- Customer: Sarah Johnson (who)
+- Product: Air Max 270 (what)
+- Date: January 15, 2024 (when)
+- Store: Nike Store NYC (where)
+- Salesperson: Mike Chen (who sold it)
+```
 
-Business Relationships: 
-  - A Customer can place many Orders (1:many)
-  - An Order can contain many Products (many:many)
-  - A Product can be in many Orders (many:many)
+**Characteristics**:
+- ✅ Descriptive attributes (text, categories)
+- ✅ Usually FEWER rows (thousands of customers, not millions)
+- ✅ Change less frequently
+- ✅ Examples: customer name, product name, store location, date
 
-Business Attributes (conceptual level):
-  - Customer: Name, Email Address, Mailing Address
-  - Order: Date Placed, Total Amount
+#### Complete Nike Store Example
+
+**Fact Table: `sales_fact`** (The Numbers)
+| sale_id | customer_id | product_id | date_id | store_id | amount | quantity | profit |
+|---------|-------------|------------|---------|----------|--------|----------|--------|
+| 1 | 101 | 501 | 20240115 | 1 | $150 | 2 | $80 |
+| 2 | 102 | 502 | 20240115 | 2 | $200 | 1 | $100 |
+| 3 | 101 | 503 | 20240116 | 1 | $120 | 1 | $60 |
+
+**Facts**: `amount`, `quantity`, `profit` ← These are the numbers!
+
+**Dimension Table: `customer_dim`** (Who)
+| customer_id | name | age | city | country | customer_segment |
+|-------------|------|-----|------|---------|------------------|
+| 101 | Sarah Johnson | 28 | New York | USA | Premium |
+| 102 | Mike Chen | 35 | Los Angeles | USA | Regular |
+
+**Dimension Table: `product_dim`** (What)
+| product_id | product_name | category | brand_line | price | color |
+|------------|---------------|----------|------------|-------|-------|
+| 501 | Air Max 270 | Running Shoes | Air Max | $150 | Black/White |
+| 502 | Jordan 1 Retro | Basketball | Jordan | $200 | Red/Black |
+| 503 | Dri-FIT T-Shirt | Apparel | Performance | $120 | Blue |
+
+**Dimension Table: `store_dim`** (Where)
+| store_id | store_name | city | state | country | store_type |
+|----------|------------|------|-------|---------|------------|
+| 1 | Nike Store NYC | New York | NY | USA | Flagship |
+| 2 | Nike Store LA | Los Angeles | CA | USA | Standard |
+
+**Dimension Table: `date_dim`** (When)
+| date_id | date | day | month | year | quarter | day_of_week |
+|---------|------|-----|-------|------|---------|-------------|
+| 20240115 | 2024-01-15 | 15 | January | 2024 | Q1 | Monday |
+| 20240116 | 2024-01-16 | 16 | January | 2024 | Q1 | Tuesday |
+
+#### Why This Structure Works
+
+**Query Example**: "What's the total sales by customer city?"
+```sql
+SELECT 
+    c.city,
+    SUM(f.amount) as total_sales
+FROM sales_fact f
+JOIN customer_dim c ON f.customer_id = c.customer_id
+GROUP BY c.city
+```
+
+**Result**:
+| city | total_sales |
+|------|-------------|
+| New York | $270 |
+| Los Angeles | $200 |
+
+**Why it's fast**: Small dimension table (few cities) joined to fact table, then aggregated.
+
+**Memory Trick**:
+- **Facts** = "What happened?" → Numbers, metrics, measurements
+- **Dimensions** = "Who/What/When/Where?" → Descriptions, attributes, context
+
+---
+
+### 3. Different Levels of Data Models
+
+Data modeling has **three levels**, from abstract (business view) to concrete (database code).
+
+#### 3.1 Conceptual Data Model - "What Does the Business Need?"
+
+**Purpose**: High-level business view (WHAT, not HOW)
+
+**Nike Store Example**:
+
+**Business Entities**:
+- Customer (people who buy)
+- Product (Nike items sold)
+- Sale (the transaction)
+- Store (where sales happen)
+
+**Business Relationships**:
+- A Customer can make many Sales (1:many)
+- A Sale contains many Products (many:many)
+- A Product can be in many Sales (many:many)
+- A Store has many Sales (1:many)
+
+**Business Attributes** (no data types yet):
+- Customer: Name, Email, City
   - Product: Product Name, Price, Category
+- Sale: Date, Total Amount
+- Store: Store Name, Location
 
-Business Rules:
-  - Every Order must have at least one Product
-  - Every Order must belong to one Customer
+**Business Rules**:
+- Every Sale must have at least one Product
+- Every Sale must belong to one Customer
   - Customer Email must be unique
-```
 
-**Note**: No data types, no technical structure - purely business-focused!
+**Key Point**: No technical details - just business concepts!
 
-#### 2.2 Logical Data Models
+#### 3.2 Logical Data Model - "How is Data Organized?"
 
-**Purpose**: Detailed representation of data structures with **generic data types** but **independent of specific database system**
+**Purpose**: Detailed structure with generic data types (any database system)
 
-**Characteristics**:
-- More detailed than conceptual models
-- Uses formal notation (UML, IDEF1X, etc.)
-- Specifies **generic data types** (INT, VARCHAR, DATE) - **not DBMS-specific**
-- Shows relationships with cardinality
-- **Independent of database management system (DBMS)** - could work with PostgreSQL, MySQL, Oracle, etc.
-- Includes normalization structure
+**Nike Store Example**:
 
-**Key Distinction**: Logical models answer "What is the structure?" using generic types, but don't specify "Which database system?"
+```sql
+-- Generic data types (works with PostgreSQL, MySQL, Oracle, etc.)
 
-**Components**:
-- **Entities**: Detailed entity definitions (tables)
-- **Attributes**: Generic data types (INT, VARCHAR, DATE), lengths, constraints
-- **Relationships**: Cardinality (1:1, 1:many, many:many) with foreign keys
-- **Keys**: Primary keys, foreign keys
-- **Normalization**: Up to 3NF typically
-
-**Example** (Generic data types - not DBMS-specific):
-```
 Customer Entity:
   - customer_id: Integer, Primary Key
   - first_name: String(50), Required
   - last_name: String(50), Required
   - email: String(100), Unique, Required
-  - phone: String(20), Optional
-  - created_date: DateTime, Required
+  - city: String(50), Optional
+  - registration_date: DateTime, Required
 
-Order Entity:
-  - order_id: Integer, Primary Key
+Product Entity:
+  - product_id: Integer, Primary Key
+  - product_name: String(200), Required
+  - category: String(50), Required  -- Running, Basketball, Apparel
+  - brand_line: String(50), Required  -- Air Max, Jordan, Dri-FIT
+  - price: Decimal(10,2), Required
+  - color: String(30), Optional
+
+Sale Entity:
+  - sale_id: Integer, Primary Key
   - customer_id: Integer, Foreign Key -> Customer.customer_id
-  - order_date: DateTime, Required
-  - total_amount: Decimal(10,2)
+  - store_id: Integer, Foreign Key -> Store.store_id
+  - sale_date: DateTime, Required
+  - total_amount: Decimal(10,2), Required
 
-OrderItem Entity (for many-to-many):
-  - order_id: Integer, Foreign Key -> Order.order_id
+SaleItem Entity (for many-to-many):
+  - sale_id: Integer, Foreign Key -> Sale.sale_id
   - product_id: Integer, Foreign Key -> Product.product_id
-  - quantity: Integer
-  - unit_price: Decimal(10,2)
+  - quantity: Integer, Required
+  - unit_price: Decimal(10,2), Required
 ```
 
-**When Used**: 
-- Highly procedural implementation environments
-- Data warehouse design
-- Reporting system development
-- Often skipped in agile/DevOps practices
+**Key Point**: Uses generic types (Integer, String, DateTime) - not specific to any database!
 
-**Note**: Uses generic types (Integer, String, DateTime) that can be implemented in any DBMS
+#### 3.3 Physical Data Model - "How is it Stored in PostgreSQL/MySQL?"
 
-#### 2.3 Physical Data Models
+**Purpose**: DBMS-specific implementation with performance optimizations
 
-**Purpose**: **DBMS-specific** schema for how data will be **physically stored** in a particular database system
+**Nike Store Example - PostgreSQL**:
 
-**Characteristics**:
-- Most concrete and detailed
-- **DBMS-specific** (PostgreSQL uses SERIAL, MySQL uses AUTO_INCREMENT, Oracle uses SEQUENCE)
-- Includes **performance tuning considerations** (indexes, partitioning)
-- **Finalized design ready for implementation**
-- Includes storage optimization
-
-**Key Distinction**: Physical models answer "How do we implement this in PostgreSQL/MySQL/Oracle?" with specific syntax and optimizations.
-
-**Components**:
-- **Tables**: Actual table structures with DBMS-specific syntax
-- **Columns**: Data types **specific to chosen DBMS** (SERIAL in PostgreSQL, AUTO_INCREMENT in MySQL)
-- **Indexes**: For performance optimization (specific index types per DBMS)
-- **Partitioning**: Table partitioning strategies (DBMS-specific syntax)
-- **Storage**: Storage parameters, compression (DBMS-specific)
-- **Keys**: Primary keys, foreign keys, unique constraints (with DBMS syntax)
-- **Associative Tables**: For many-to-many relationships
-
-**Example**:
 ```sql
--- PostgreSQL Physical Model
+-- PostgreSQL-specific syntax
+
 CREATE TABLE customers (
-    customer_id SERIAL PRIMARY KEY,
+    customer_id SERIAL PRIMARY KEY,  -- SERIAL = PostgreSQL auto-increment
     first_name VARCHAR(50) NOT NULL,
     last_name VARCHAR(50) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
-    phone VARCHAR(20),
-    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    city VARCHAR(50),
+    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Performance indexes
     INDEX idx_customer_email (email),
-    INDEX idx_customer_name (last_name, first_name)
-) PARTITION BY RANGE (created_date);
+    INDEX idx_customer_city (city)
+) PARTITION BY RANGE (registration_date);  -- Partitioning for performance
 
-CREATE TABLE orders (
-    order_id SERIAL PRIMARY KEY,
-    customer_id INTEGER NOT NULL REFERENCES customers(customer_id),
-    order_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    total_amount DECIMAL(10,2) CHECK (total_amount >= 0),
-    INDEX idx_order_customer (customer_id),
-    INDEX idx_order_date (order_date)
+CREATE TABLE products (
+    product_id SERIAL PRIMARY KEY,
+    product_name VARCHAR(200) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    brand_line VARCHAR(50) NOT NULL,
+    price DECIMAL(10,2) NOT NULL CHECK (price > 0),
+    color VARCHAR(30),
+    INDEX idx_product_category (category),
+    INDEX idx_product_brand (brand_line)
 );
+
+CREATE TABLE sales (
+    sale_id SERIAL PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers(customer_id),
+    store_id INTEGER NOT NULL REFERENCES stores(store_id),
+    sale_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    total_amount DECIMAL(10,2) NOT NULL CHECK (total_amount >= 0),
+    INDEX idx_sale_customer (customer_id),
+    INDEX idx_sale_date (sale_date),
+    INDEX idx_sale_store (store_id)
+) PARTITION BY RANGE (sale_date);
 ```
 
-**Performance Considerations**:
-- Indexing strategies
-- Partitioning schemes
-- Denormalization for query performance
-- Materialized views
-- Column storage vs row storage
+**Key Differences**:
+- ✅ Uses `SERIAL` (PostgreSQL-specific)
+- ✅ Includes indexes for performance
+- ✅ Includes partitioning strategy
+- ✅ Includes constraints (CHECK, NOT NULL)
 
----
-
-#### Comparison: Conceptual vs Logical vs Physical
+**Comparison Table**:
 
 | Aspect | Conceptual | Logical | Physical |
 |--------|------------|---------|----------|
 | **Focus** | Business concepts | Data structure | Database implementation |
-| **Language** | Business terms | Generic technical terms | DBMS-specific syntax |
-| **Data Types** | None (business attributes) | Generic (INT, VARCHAR, DATE) | DBMS-specific (SERIAL, AUTO_INCREMENT) |
-| **Keys** | Relationships only | Primary/Foreign keys defined | Primary/Foreign keys with DBMS syntax |
-| **Indexes** | No | No | Yes (performance optimization) |
-| **Normalization** | Not applicable | Up to 3NF | May denormalize for performance |
-| **DBMS Independent** | Yes | Yes | No (specific to PostgreSQL/MySQL/etc.) |
-| **Example** | "Customer has Name and Email" | `customer_id: Integer, email: String(100)` | `customer_id SERIAL PRIMARY KEY` |
-
-**Key Takeaway**: 
-- **Conceptual** = Business view (WHAT data)
-- **Logical** = Generic structure (HOW data is organized - any DBMS)
-- **Physical** = Specific implementation (HOW data is stored - specific DBMS)
+| **Language** | Business terms | Generic technical | DBMS-specific syntax |
+| **Data Types** | None | Generic (INT, VARCHAR) | Specific (SERIAL, TIMESTAMP) |
+| **Example** | "Customer has Name" | `customer_id: Integer` | `customer_id SERIAL PRIMARY KEY` |
 
 ---
 
-### 3. Data Modeling Process
+### 4. Normalization: Organizing Data Efficiently
 
-The data modeling process follows a systematic workflow:
+**The Problem**: Without normalization, data gets messy and redundant.
 
-#### Step 1: Identify the Entities
+**Nike Store Example - Before Normalization**:
 
-**What**: Identify things, events, or concepts represented in the dataset
-
-**Guidelines**:
-- Each entity should be cohesive and logically discrete
-- Entities represent nouns (Customer, Product, Order, Transaction)
-- Avoid overlapping entities
-
-**Example**: For an e-commerce system
-- Entities: Customer, Product, Order, Payment, Shipment, Review
-
-#### Step 2: Identify Key Properties of Each Entity
-
-**What**: Determine unique properties (attributes) that differentiate entities
-
-**Guidelines**:
-- Attributes describe characteristics of entities
-- Each attribute should belong to one entity
-- Identify unique identifiers (keys)
-
-**Example**:
 ```
-Customer Entity:
-  - customer_id (unique identifier)
-  - first_name
-  - last_name
-  - email
-  - phone
-  - address
-  - registration_date
-
-Product Entity:
-  - product_id (unique identifier)
-  - name
-  - description
-  - price
-  - category
-  - stock_quantity
+Bad Table (Everything in one place):
+sale_id | customer_name | customer_email | product_name | category | quantity | price | sale_date
+--------|---------------|----------------|--------------|----------|----------|-------|-----------
+1       | Sarah Johnson | sarah@email.com| Air Max 270  | Running  | 2        | $150  | 2024-01-15
+1       | Sarah Johnson | sarah@email.com| Dri-FIT Shirt| Apparel  | 1        | $30   | 2024-01-15
+2       | Mike Chen     | mike@email.com | Jordan 1     | Basketball| 1       | $200  | 2024-01-16
 ```
 
-#### Step 3: Identify Relationships Among Entities
+**Problems**:
+- ❌ Customer info repeated (Sarah appears twice)
+- ❌ Product info repeated (if Air Max 270 sold 1000 times, name appears 1000 times)
+- ❌ Hard to update (change customer email? Update 1000 rows!)
+- ❌ Wastes storage space
 
-**What**: Determine how entities relate to each other
+**Solution**: Normalize into separate tables!
 
-**Relationship Types**:
-- **One-to-One (1:1)**: One instance of Entity A relates to one instance of Entity B
-- **One-to-Many (1:N)**: One instance of Entity A relates to many instances of Entity B
-- **Many-to-Many (M:N)**: Many instances of Entity A relate to many instances of Entity B
+#### First Normal Form (1NF) - Atomic Values
 
-**Documentation**: Usually documented via Unified Modeling Language (UML) or Entity-Relationship Diagrams (ERD)
+**Rule**: Each column must contain atomic (indivisible) values. No repeating groups.
 
-**Example**:
+**Nike Store Example - Violating 1NF**:
+
 ```
-Customer (1) ----< places >---- (many) Order
-Order (many) ----< contains >---- (many) Product
-Customer (1) ----< has >---- (1) Account
-```
-
-#### Step 4: Map Attributes to Entities Completely
-
-**What**: Ensure all attributes are properly assigned to entities
-
-**Guidelines**:
-- Ensure model reflects how business will use the data
-- Follow formal data modeling patterns
-- Object-oriented developers: Use analysis/design patterns
-- Data warehouse: Use dimensional modeling patterns
-
-**Patterns**:
-- **OLTP Systems**: Normalized patterns (3NF)
-- **OLAP Systems**: Dimensional patterns (Star/Snowflake)
-- **NoSQL**: Document, key-value, graph patterns
-
-#### Step 5: Assign Keys and Normalize
-
-**What**: Assign primary keys and decide on normalization level
-
-**Key Types**:
-- **Primary Key**: Unique identifier for each row
-- **Foreign Key**: Reference to another table's primary key
-- **Composite Key**: Multiple columns forming a key
-- **Surrogate Key**: Artificial key (auto-increment, UUID)
-- **Natural Key**: Business-meaningful key (email, SSN)
-
-**Normalization**:
-- Balance between reducing redundancy and performance
-- Normalized: Less storage, more joins
-- Denormalized: More storage, fewer joins, faster queries
-
-**Example**:
-```sql
--- Normalized (3NF)
-Customers: customer_id (PK), name, email
-Orders: order_id (PK), customer_id (FK), order_date
-OrderItems: order_id (FK), product_id (FK), quantity, price
-
--- Denormalized (for analytics)
-OrderSummary: order_id, customer_name, order_date, product_name, quantity, price
+Bad:
+sale_id | customer_id | products
+--------|------------|------------------
+1       | 101        | Air Max 270, Dri-FIT Shirt
+2       | 102        | Jordan 1, Socks
 ```
 
-#### Step 6: Finalize and Validate the Data Model
-
-**What**: Review, refine, and validate the model
-
-**Validation Checklist**:
-- ✅ All business requirements captured
-- ✅ Relationships correctly defined
-- ✅ Keys properly assigned
-- ✅ Normalization appropriate for use case
-- ✅ Performance considerations addressed
-- ✅ Data integrity constraints defined
-- ✅ Model reviewed by stakeholders
-
-**Iterative Process**: Data modeling is iterative - refine as business needs change
-
----
-
-### 4. Types of Data Modeling
-
-Data modeling has evolved with database management systems:
-
-#### 4.1 Relational Data Models
-
-**History**: Proposed by IBM researcher E.F. Codd in 1970
-
-**Characteristics**:
-- Data organized in tables (relations)
-- Explicit joins through foreign keys
-- Reduces database complexity
-- Maintains data integrity
-- Minimizes redundancy through normalization
-
-**Use Cases**:
-- Transactional systems (OLTP)
-- Point-of-sale systems
-- Enterprise applications
-- Most common database type
-
-**Example**:
-```sql
--- Relational Model
-CREATE TABLE customers (
-    customer_id INT PRIMARY KEY,
-    name VARCHAR(100),
-    email VARCHAR(100)
-);
-
-CREATE TABLE orders (
-    order_id INT PRIMARY KEY,
-    customer_id INT REFERENCES customers(customer_id),
-    order_date DATE,
-    total DECIMAL(10,2)
-);
-```
-
-**SQL**: Relational databases use Structured Query Language (SQL)
-
-#### 4.2 Entity-Relationship (ER) Data Models
-
-**Purpose**: Visual representation of database structure
-
-**Components**:
-- **Entities**: Rectangles
-- **Attributes**: Ovals
-- **Relationships**: Diamonds
-- **Cardinality**: Lines with notation (1, N, M)
-
-**Tools**: ER modeling tools create visual maps
-- ER/Studio
-- Lucidchart
-- dbdiagram.io
-- Draw.io
-
-**Example ER Diagram Notation**:
-```
-[Customer] ----<places>---- [Order]
-    1                          N
-
-[Order] ----<contains>---- [Product]
-    M                          N
-```
-
-#### 4.3 Dimensional Data Models
-
-**History**: Developed by Ralph Kimball for data warehouses
-
-**Purpose**: Optimize data retrieval speeds for analytics
-
-**Characteristics**:
-- Designed for OLAP systems
-- Increases redundancy for faster queries
-- Focus on reporting and retrieval
-- Star and Snowflake schemas
-
-**Components**:
-- **Fact Tables**: Measurable business events (sales, clicks, orders)
-- **Dimension Tables**: Descriptive attributes (time, customer, product)
-
-**Use Cases**:
-- Data warehouses
-- Business intelligence
-- Analytics dashboards
-- Reporting systems
-
-#### 4.4 Star Schema
-
-**Structure**: Central fact table surrounded by dimension tables
-
-**Characteristics**:
-- Denormalized dimensions
-- Single level of dimensions
-- Faster query performance
-- Fewer JOIN operations
-- More storage space
-
-**Example**:
-```
-Fact Table: Sales
-  - sale_id (PK)
-  - date_id (FK -> Date)
-  - customer_id (FK -> Customer)
-  - product_id (FK -> Product)
-  - store_id (FK -> Store)
-  - quantity
-  - revenue
-
-Dimension Tables:
-  - Date: date_id, year, quarter, month, day
-  - Customer: customer_id, name, city, state
-  - Product: product_id, name, category, brand
-  - Store: store_id, name, location, region
-```
-
-**Visual Representation**:
-```
-        [Date]
-           |
-           |
-[Product]--[Sales]--[Customer]
-           |
-           |
-        [Store]
-```
-
-**Pros**:
-- Simple to understand
-- Fast queries (fewer joins)
-- Easy for business users
-- Optimized for analytics
-
-**Cons**:
-- Data redundancy in dimensions
-- Storage overhead
-- Harder to maintain consistency
-
-#### 4.5 Snowflake Schema
-
-**Structure**: Normalized star schema with hierarchical dimensions
-
-**Characteristics**:
-- Normalized dimension tables
-- Multiple levels of dimensions
-- Reduces data redundancy
-- More memory efficient
-- More complex queries
-
-**Example**:
-```
-Fact Table: Sales
-  - sale_id
-  - date_id (FK)
-  - customer_id (FK)
-  - product_id (FK)
-  - store_id (FK)
-  - quantity, revenue
-
-Dimension Tables:
-  - Date: date_id, month_id (FK -> Month)
-  - Month: month_id, quarter_id (FK -> Quarter)
-  - Quarter: quarter_id, year_id (FK -> Year)
-  - Year: year_id, year_value
-  
-  - Customer: customer_id, city_id (FK -> City)
-  - City: city_id, state_id (FK -> State)
-  - State: state_id, country_id (FK -> Country)
-```
-
-**Visual Representation**:
-```
-        [Year]
-           |
-        [Quarter]
-           |
-        [Month]
-           |
-        [Date]
-           |
-           |
-[Product]--[Sales]--[Customer]
-           |            |
-           |         [City]
-           |            |
-        [Store]      [State]
-                         |
-                      [Country]
-```
-
-**Pros**:
-- Reduced storage space
-- Easier to maintain
-- Better data integrity
-- Less redundancy
-
-**Cons**:
-- More complex queries (more joins)
-- Slower query performance
-- Harder for business users to understand
-
-**When to Use**:
-- Large dimension tables
-- Many attributes in dimensions
-- Storage is a concern
-- Dimension data changes frequently
-
-#### 4.6 Hierarchical Data Models
-
-**Structure**: Tree-like format representing one-to-many relationships
-
-**Characteristics**:
-- Each record has single root/parent
-- Maps to one or more child tables
-- Less efficient than modern models
-- Still used in specific systems
-
-**Use Cases**:
-- XML systems
-- Geographic Information Systems (GIS)
-- File systems
-- Organizational charts
-
-**Example**: IBM Information Management System (IMS) - introduced 1966
-
-#### 4.7 Object-Oriented Data Models
-
-**History**: Gained traction in mid-1990s with OOP popularity
-
-**Characteristics**:
-- Objects as abstractions of real-world entities
-- Grouped in class hierarchies
-- Support complex data relationships
-- Can incorporate tables
-
-**Use Cases**:
-- Multimedia databases
-- Hypertext databases
-- Complex data structures
-- Object-oriented applications
-
-#### 4.8 One Big Table (OBT) / Wide Table Approach
-
-**Purpose**: Denormalize everything into a single wide table
-
-**Characteristics**:
-- All dimensions flattened into fact table
-- Maximum denormalization
-- Very fast queries (no joins)
-- Massive storage overhead
-- Difficult to maintain
-
-**Use Cases**:
-- Small datasets
-- Simple analytics
-- Columnar databases (BigQuery, Redshift)
-- When joins are expensive
-
-**Example**:
-```sql
-CREATE TABLE sales_wide (
-    sale_id,
-    sale_date,
-    year, quarter, month, day,
-    customer_id, customer_name, customer_city, customer_state,
-    product_id, product_name, product_category, product_brand,
-    store_id, store_name, store_location, store_region,
-    quantity,
-    revenue
-);
-```
-
-**Trade-offs**:
-- ✅ Fastest queries
-- ✅ Simple for users
-- ❌ Massive storage
-- ❌ Data redundancy
-- ❌ Hard to update
-
----
-
-### 5. Normalization
-
-**Purpose**: Organize data to reduce redundancy and improve data integrity
-
-**Normal Forms**: Progressive levels of normalization
-
-#### First Normal Form (1NF)
-
-**Rules**:
-1. Each column contains atomic (indivisible) values
-2. Each row is unique
-3. No repeating groups
-
-**Example - Violating 1NF**:
-```
-Order Table:
-order_id | customer_id | products
----------|-------------|------------------
-1        | 101         | Laptop, Mouse, Keyboard
-2        | 102         | Phone, Case
-```
+**Problem**: `products` column has multiple values!
 
 **Fixed (1NF)**:
+
 ```
-Order Table:
-order_id | customer_id
----------|-------------
-1        | 101
-2        | 102
+Sales Table:
+sale_id | customer_id | sale_date
+--------|-------------|-----------
+1       | 101         | 2024-01-15
+2       | 102         | 2024-01-16
 
-OrderItems Table:
-order_id | product_name
----------|-------------
-1        | Laptop
-1        | Mouse
-1        | Keyboard
-2        | Phone
-2        | Case
-```
-
-#### Second Normal Form (2NF)
-
-**Rules**:
-1. Must be in 1NF
-2. All non-key attributes fully dependent on primary key
-3. No partial dependencies
-
-**Example - Violating 2NF**:
-```
-OrderItems Table:
-order_id | product_id | product_name | quantity | price
----------|------------|--------------|----------|-------
-1        | P001       | Laptop       | 1        | 1000
-1        | P002       | Mouse        | 2        | 20
+SaleItems Table:
+sale_id | product_name
+--------|-------------
+1       | Air Max 270
+1       | Dri-FIT Shirt
+2       | Jordan 1
+2       | Socks
 ```
 
-**Problem**: `product_name` depends on `product_id`, not `order_id`
+**Key Point**: One fact per row!
+
+#### Second Normal Form (2NF) - No Partial Dependencies
+
+**Rule**: Must be in 1NF + all non-key attributes fully depend on primary key.
+
+**Nike Store Example - Violating 2NF**:
+
+```
+SaleItems Table:
+sale_id | product_id | product_name | category | quantity | price
+--------|------------|--------------|----------|----------|-------
+1       | 501        | Air Max 270  | Running  | 2        | $150
+1       | 502        | Dri-FIT Shirt| Apparel  | 1        | $30
+```
+
+**Problem**: `product_name` and `category` depend on `product_id`, NOT on `sale_id`!
 
 **Fixed (2NF)**:
+
 ```
-OrderItems Table:
-order_id | product_id | quantity | price
----------|------------|----------|-------
-1        | P001       | 1        | 1000
-1        | P002       | 2        | 20
+SaleItems Table:
+sale_id | product_id | quantity | unit_price
+--------|------------|----------|------------
+1       | 501        | 2        | $150
+1       | 502        | 1        | $30
 
 Products Table:
-product_id | product_name
------------|-------------
-P001       | Laptop
-P002       | Mouse
+product_id | product_name | category
+-----------|--------------|----------
+501        | Air Max 270  | Running
+502        | Dri-FIT Shirt| Apparel
 ```
 
-#### Third Normal Form (3NF)
+**Key Point**: Product details belong in Products table, not SaleItems!
 
-**Rules**:
-1. Must be in 2NF
-2. No transitive dependencies
-3. Non-key attributes don't depend on other non-key attributes
+#### Third Normal Form (3NF) - No Transitive Dependencies
 
-**Example - Violating 3NF**:
+**Rule**: Must be in 2NF + no non-key attribute depends on another non-key attribute.
+
+**Nike Store Example - Violating 3NF**:
+
 ```
 Customers Table:
 customer_id | name | city | state | zip_code | state_tax_rate
 ------------|------|------|-------|----------|---------------
-101         | John | NYC  | NY    | 10001    | 0.08
-102         | Jane | LA   | CA    | 90001    | 0.10
+101         | Sarah| NYC  | NY    | 10001    | 0.08
+102         | Mike | LA   | CA    | 90001    | 0.10
 ```
 
-**Problem**: `state_tax_rate` depends on `state`, not `customer_id`
+**Problem**: `state_tax_rate` depends on `state`, NOT on `customer_id`!
 
 **Fixed (3NF)**:
+
 ```
 Customers Table:
 customer_id | name | city | zip_code | state_id
-------------|------|------|----------|----------
-101         | John | NYC  | 10001    | NY
-102         | Jane | LA   | 90001    | CA
+------------|------|------|-----------|----------
+101         | Sarah| NYC  | 10001    | NY
+102         | Mike | LA   | 90001    | CA
 
 States Table:
 state_id | state_name | tax_rate
@@ -848,586 +417,917 @@ NY       | New York   | 0.08
 CA       | California | 0.10
 ```
 
-#### Boyce-Codd Normal Form (BCNF)
+**Key Point**: Tax rate belongs in States table, not Customers!
 
-**Rules**:
-1. Must be in 3NF
-2. Every determinant is a candidate key
+#### Complete Normalized Nike Store Schema (3NF)
 
-**When Needed**: When 3NF doesn't eliminate all redundancy
+```sql
+-- Customers
+CREATE TABLE customers (
+    customer_id SERIAL PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    city VARCHAR(50),
+    state_id VARCHAR(2) REFERENCES states(state_id),
+    zip_code VARCHAR(10),
+    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
-#### Fourth Normal Form (4NF)
+-- States
+CREATE TABLE states (
+    state_id VARCHAR(2) PRIMARY KEY,
+    state_name VARCHAR(50) NOT NULL,
+    tax_rate DECIMAL(5,4) NOT NULL
+);
 
-**Rules**:
-1. Must be in BCNF
-2. No multi-valued dependencies
+-- Products
+CREATE TABLE products (
+    product_id SERIAL PRIMARY KEY,
+    product_name VARCHAR(200) NOT NULL,
+    category_id INT REFERENCES categories(category_id),
+    brand_line_id INT REFERENCES brand_lines(brand_line_id),
+    price DECIMAL(10,2) NOT NULL,
+    color VARCHAR(30)
+);
 
-#### Fifth Normal Form (5NF)
+-- Categories
+CREATE TABLE categories (
+    category_id SERIAL PRIMARY KEY,
+    category_name VARCHAR(50) NOT NULL  -- Running, Basketball, Apparel
+);
 
-**Rules**:
-1. Must be in 4NF
-2. No join dependencies
+-- Brand Lines
+CREATE TABLE brand_lines (
+    brand_line_id SERIAL PRIMARY KEY,
+    brand_line_name VARCHAR(50) NOT NULL  -- Air Max, Jordan, Dri-FIT
+);
 
-**Note**: 4NF and 5NF are rarely used in practice
+-- Stores
+CREATE TABLE stores (
+    store_id SERIAL PRIMARY KEY,
+    store_name VARCHAR(100) NOT NULL,
+    city VARCHAR(50),
+    state_id VARCHAR(2) REFERENCES states(state_id),
+    store_type VARCHAR(20)  -- Flagship, Standard, Outlet
+);
 
----
+-- Sales
+CREATE TABLE sales (
+    sale_id SERIAL PRIMARY KEY,
+    customer_id INT REFERENCES customers(customer_id),
+    store_id INT REFERENCES stores(store_id),
+    sale_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    total_amount DECIMAL(10,2) NOT NULL
+);
 
-### 6. Denormalization
+-- Sale Items
+CREATE TABLE sale_items (
+    sale_id INT REFERENCES sales(sale_id),
+    product_id INT REFERENCES products(product_id),
+    quantity INT NOT NULL CHECK (quantity > 0),
+    unit_price DECIMAL(10,2) NOT NULL,
+    PRIMARY KEY (sale_id, product_id)
+);
+```
 
-**Purpose**: Intentionally introduce redundancy to improve query performance
-
-**When to Denormalize**:
-- Read-heavy workloads
-- Analytics/OLAP systems
-- Joins are expensive
-- Storage cost is acceptable
-- Data doesn't change frequently
-
-**Techniques**:
-1. **Flatten Dimensions**: Store dimension attributes in fact table
-2. **Pre-compute Aggregates**: Store calculated values
-3. **Duplicate Data**: Copy frequently accessed data
-4. **Materialized Views**: Pre-computed query results
+**Benefits of Normalization**:
+- ✅ No data redundancy (customer info stored once)
+- ✅ Easy to update (change product name? One row!)
+- ✅ Data consistency (no conflicting information)
+- ✅ Saves storage space
 
 **Trade-offs**:
-- ✅ Faster queries
-- ✅ Simpler queries
-- ❌ More storage
-- ❌ Data redundancy
-- ❌ Update anomalies
-- ❌ Consistency challenges
+- ❌ More tables = more joins (can be slower for analytics)
+- ❌ More complex queries
 
 ---
 
-### 7. Slowly Changing Dimensions (SCD)
+### 5. Denormalization: When to Break the Rules
 
-**Problem**: How to handle changes to dimension data over time?
+**The Problem**: Normalized data is great for transactions, but slow for analytics!
 
-**Example**: Customer changes address, product price changes, employee gets promoted
+**Nike Store Analytics Query (Normalized)**:
+```sql
+-- To get "Total sales by customer city", need 4 joins!
+SELECT 
+    c.city,
+    SUM(si.quantity * si.unit_price) as total_sales
+FROM sale_items si
+JOIN sales s ON si.sale_id = s.sale_id
+JOIN customers c ON s.customer_id = c.customer_id
+JOIN products p ON si.product_id = p.product_id
+GROUP BY c.city;
+```
 
-#### SCD Type 0: Fixed/Static
+**This is SLOW** with millions of rows!
 
-**Behavior**: Dimension never changes
+**Solution**: Denormalize for analytics (data warehouse)!
 
-**Use Case**: Historical data that should never change
+#### Denormalized Star Schema for Analytics
 
-**Example**: Customer's original registration date
+**Fact Table: `fact_sales`** (Denormalized for speed)
+```sql
+CREATE TABLE fact_sales (
+    sale_id BIGINT PRIMARY KEY,
+    -- Foreign Keys
+    date_id INT,
+    customer_id INT,
+    product_id INT,
+    store_id INT,
+    -- Measures (the numbers)
+    quantity INT,
+    revenue DECIMAL(10,2),
+    discount_amount DECIMAL(10,2),
+    profit DECIMAL(10,2),
+    -- Denormalized attributes (for faster queries)
+    customer_city VARCHAR(50),      -- Denormalized from customer_dim
+    product_category VARCHAR(50),  -- Denormalized from product_dim
+    store_city VARCHAR(50)          -- Denormalized from store_dim
+);
+```
 
-#### SCD Type 1: Overwrite
+**Now the same query is FAST**:
+```sql
+-- No joins needed! Everything in one table!
+SELECT 
+    customer_city,
+    SUM(revenue) as total_sales
+FROM fact_sales
+GROUP BY customer_city;
+```
 
-**Behavior**: Old value is overwritten with new value
+**When to Denormalize**:
+- ✅ Analytics/OLAP systems (read-heavy)
+- ✅ Data warehouses (not transactional systems)
+- ✅ When joins are expensive
+- ✅ When storage is cheap
+
+**When to Normalize**:
+- ✅ Transactional/OLTP systems (write-heavy)
+- ✅ When data integrity is critical
+- ✅ When storage is expensive
+- ✅ When updates are frequent
+
+---
+
+### 6. Star Schema: The Analytics Powerhouse
+
+**Structure**: Central fact table surrounded by dimension tables (like a star ⭐)
+
+**Nike Store Star Schema**:
+
+```
+        [Date Dimension]
+              |
+              |
+[Product]--[Sales Fact]--[Customer]
+              |
+              |
+        [Store Dimension]
+```
+
+#### Fact Table: `fact_sales`
+
+```sql
+CREATE TABLE fact_sales (
+    sale_id BIGINT PRIMARY KEY,
+    -- Foreign Keys (point to dimensions)
+    date_id INT NOT NULL,
+    customer_id INT NOT NULL,
+    product_id INT NOT NULL,
+    store_id INT NOT NULL,
+    -- Measures (the numbers we analyze)
+    quantity INT NOT NULL,
+    revenue DECIMAL(10,2) NOT NULL,
+    discount_amount DECIMAL(10,2) DEFAULT 0,
+    profit DECIMAL(10,2) NOT NULL,
+    cost DECIMAL(10,2) NOT NULL
+);
+```
+
+**Sample Data**:
+| sale_id | date_id | customer_id | product_id | store_id | quantity | revenue | profit |
+|---------|---------|-------------|------------|----------|----------|---------|--------|
+| 1 | 20240115 | 101 | 501 | 1 | 2 | $300 | $160 |
+| 2 | 20240115 | 102 | 502 | 2 | 1 | $200 | $100 |
+| 3 | 20240116 | 101 | 503 | 1 | 1 | $120 | $60 |
+
+#### Dimension Tables
+
+**Date Dimension**:
+```sql
+CREATE TABLE dim_date (
+    date_id INT PRIMARY KEY,
+    date_value DATE NOT NULL,
+    year INT NOT NULL,
+    quarter INT NOT NULL,
+    month INT NOT NULL,
+    month_name VARCHAR(20),
+    day INT NOT NULL,
+    day_of_week VARCHAR(10),
+    is_weekend BOOLEAN,
+    is_holiday BOOLEAN
+);
+```
+
+**Sample Data**:
+| date_id | date_value | year | quarter | month | month_name | day | day_of_week | is_weekend |
+|---------|------------|------|---------|-------|------------|-----|-------------|------------|
+| 20240115 | 2024-01-15 | 2024 | 1 | 1 | January | 15 | Monday | false |
+| 20240116 | 2024-01-16 | 2024 | 1 | 1 | January | 16 | Tuesday | false |
+
+**Customer Dimension**:
+```sql
+CREATE TABLE dim_customer (
+    customer_sk SERIAL PRIMARY KEY,  -- Surrogate key
+    customer_id INT NOT NULL,        -- Natural key
+    customer_name VARCHAR(100),
+    age INT,
+    city VARCHAR(50),
+    state VARCHAR(50),
+    country VARCHAR(50),
+    customer_segment VARCHAR(20),  -- Premium, Regular, Casual
+    registration_date DATE
+);
+```
+
+**Sample Data**:
+| customer_sk | customer_id | customer_name | city | state | customer_segment |
+|--------------|-------------|---------------|------|-------|------------------|
+| 1 | 101 | Sarah Johnson | New York | NY | Premium |
+| 2 | 102 | Mike Chen | Los Angeles | CA | Regular |
+
+**Product Dimension**:
+```sql
+CREATE TABLE dim_product (
+    product_id INT PRIMARY KEY,
+    product_name VARCHAR(200) NOT NULL,
+    category VARCHAR(50),      -- Running, Basketball, Apparel
+    brand_line VARCHAR(50),    -- Air Max, Jordan, Dri-FIT
+    color VARCHAR(30),
+    size VARCHAR(10),
+    price DECIMAL(10,2),
+    cost DECIMAL(10,2)
+);
+```
+
+**Sample Data**:
+| product_id | product_name | category | brand_line | color | price |
+|------------|--------------|----------|------------|-------|-------|
+| 501 | Air Max 270 | Running | Air Max | Black/White | $150 |
+| 502 | Jordan 1 Retro | Basketball | Jordan | Red/Black | $200 |
+| 503 | Dri-FIT T-Shirt | Apparel | Dri-FIT | Blue | $120 |
+
+**Store Dimension**:
+```sql
+CREATE TABLE dim_store (
+    store_id INT PRIMARY KEY,
+    store_name VARCHAR(100) NOT NULL,
+    city VARCHAR(50),
+    state VARCHAR(50),
+    country VARCHAR(50),
+    store_type VARCHAR(20),  -- Flagship, Standard, Outlet
+    store_size_sqft INT,
+    opening_date DATE
+);
+```
+
+**Sample Data**:
+| store_id | store_name | city | state | store_type |
+|----------|------------|------|-------|------------|
+| 1 | Nike Store NYC | New York | NY | Flagship |
+| 2 | Nike Store LA | Los Angeles | CA | Standard |
+
+#### Star Schema Query Examples
+
+**Query 1**: "Total revenue by customer city"
+```sql
+SELECT 
+    c.city,
+    SUM(f.revenue) as total_revenue
+FROM fact_sales f
+JOIN dim_customer c ON f.customer_id = c.customer_id
+GROUP BY c.city
+ORDER BY total_revenue DESC;
+```
+
+**Result**:
+| city | total_revenue |
+|------|--------------|
+| New York | $420 |
+| Los Angeles | $200 |
+
+**Query 2**: "Sales by product category and month"
+```sql
+SELECT 
+    d.month_name,
+    p.category,
+    SUM(f.quantity) as total_quantity,
+    SUM(f.revenue) as total_revenue
+FROM fact_sales f
+JOIN dim_date d ON f.date_id = d.date_id
+JOIN dim_product p ON f.product_id = p.product_id
+GROUP BY d.month_name, p.category
+ORDER BY d.month_name, p.category;
+```
+
+**Query 3**: "Top 10 customers by revenue"
+```sql
+SELECT 
+    c.customer_name,
+    c.city,
+    SUM(f.revenue) as total_revenue,
+    SUM(f.quantity) as total_items
+FROM fact_sales f
+JOIN dim_customer c ON f.customer_id = c.customer_id
+GROUP BY c.customer_name, c.city
+ORDER BY total_revenue DESC
+LIMIT 10;
+```
+
+**Star Schema Benefits**:
+- ✅ Simple to understand (business users love it!)
+- ✅ Fast queries (fewer joins)
+- ✅ Easy to add new dimensions
+- ✅ Optimized for analytics
+
+**Star Schema Drawbacks**:
+- ❌ Data redundancy in dimensions
+- ❌ More storage space
+- ❌ Harder to maintain consistency
+
+---
+
+### 7. Snowflake Schema: Normalized Dimensions
+
+**Structure**: Normalized star schema (dimensions reference other dimensions)
+
+**Nike Store Snowflake Schema**:
+
+```
+        [Year]
+          |
+        [Quarter]
+          |
+        [Month]
+          |
+        [Date]
+          |
+          |
+[Product]--[Sales Fact]--[Customer]
+          |                |
+          |             [City]
+          |                |
+       [Category]       [State]
+                            |
+                         [Country]
+```
+
+**Key Difference**: Dimensions are normalized (broken into smaller tables)
+
+#### Snowflake Example: Date Dimension
+
+**Star Schema** (Denormalized):
+```sql
+CREATE TABLE dim_date (
+    date_id INT PRIMARY KEY,
+    date_value DATE,
+    year INT,
+    quarter INT,
+    month INT,
+    month_name VARCHAR(20),
+    day INT,
+    day_of_week VARCHAR(10)
+);
+```
+
+**Snowflake Schema** (Normalized):
+```sql
+-- Date (lowest level)
+CREATE TABLE dim_date (
+    date_id INT PRIMARY KEY,
+    date_value DATE,
+    day INT,
+    day_of_week VARCHAR(10),
+    month_id INT REFERENCES dim_month(month_id)
+);
+
+-- Month
+CREATE TABLE dim_month (
+    month_id INT PRIMARY KEY,
+    month_number INT,
+    month_name VARCHAR(20),
+    quarter_id INT REFERENCES dim_quarter(quarter_id)
+);
+
+-- Quarter
+CREATE TABLE dim_quarter (
+    quarter_id INT PRIMARY KEY,
+    quarter_number INT,
+    quarter_name VARCHAR(10),
+    year_id INT REFERENCES dim_year(year_id)
+);
+
+-- Year
+CREATE TABLE dim_year (
+    year_id INT PRIMARY KEY,
+    year_value INT
+);
+```
+
+#### Snowflake Example: Customer Dimension
+
+**Star Schema** (Denormalized):
+```sql
+CREATE TABLE dim_customer (
+    customer_id INT PRIMARY KEY,
+    customer_name VARCHAR(100),
+    city VARCHAR(50),
+    state VARCHAR(50),
+    country VARCHAR(50)
+);
+```
+
+**Snowflake Schema** (Normalized):
+```sql
+-- Customer
+CREATE TABLE dim_customer (
+    customer_id INT PRIMARY KEY,
+    customer_name VARCHAR(100),
+    city_id INT REFERENCES dim_city(city_id)
+);
+
+-- City
+CREATE TABLE dim_city (
+    city_id INT PRIMARY KEY,
+    city_name VARCHAR(50),
+    state_id INT REFERENCES dim_state(state_id)
+);
+
+-- State
+CREATE TABLE dim_state (
+    state_id INT PRIMARY KEY,
+    state_name VARCHAR(50),
+    country_id INT REFERENCES dim_country(country_id)
+);
+
+-- Country
+CREATE TABLE dim_country (
+    country_id INT PRIMARY KEY,
+    country_name VARCHAR(50)
+);
+```
+
+#### Snowflake Query Example
+
+**Query**: "Total revenue by country"
+```sql
+-- More joins needed!
+SELECT 
+    co.country_name,
+    SUM(f.revenue) as total_revenue
+FROM fact_sales f
+JOIN dim_customer cu ON f.customer_id = cu.customer_id
+JOIN dim_city ci ON cu.city_id = ci.city_id
+JOIN dim_state st ON ci.state_id = st.state_id
+JOIN dim_country co ON st.country_id = co.country_id
+GROUP BY co.country_name;
+```
+
+**Snowflake Benefits**:
+- ✅ Less storage (normalized = no redundancy)
+- ✅ Easier to maintain (update country name? One row!)
+- ✅ Better data integrity
+
+**Snowflake Drawbacks**:
+- ❌ More complex queries (more joins)
+- ❌ Slower performance (more joins = slower)
+- ❌ Harder for business users to understand
+
+**When to Use Snowflake**:
+- ✅ Large dimension tables (millions of rows)
+- ✅ Storage is a concern
+- ✅ Dimension data changes frequently
+- ✅ When normalization benefits outweigh performance cost
+
+**When to Use Star**:
+- ✅ Most analytics use cases (default choice!)
+- ✅ When query performance is priority
+- ✅ When dimensions are small to medium
+- ✅ When business users need simple queries
+
+---
+
+### 8. Slowly Changing Dimensions (SCD): Handling Changes Over Time
+
+**The Problem**: What happens when dimension data changes?
+
+**Nike Store Example**:
+- Customer Sarah moves from NYC to LA
+- Product "Air Max 270" price changes from $150 to $140
+- Store "Nike NYC" changes from Standard to Flagship
+
+**Question**: Do we overwrite the old value? Keep history? How?
+
+#### SCD Type 0: Fixed/Static (Never Changes)
+
+**Behavior**: Dimension never changes, even if source data changes.
+
+**Use Case**: Historical data that should never change.
+
+**Nike Store Example**:
+```sql
+-- Customer's original registration date
+customer_id | registration_date
+------------|------------------
+101         | 2020-01-15  -- Never changes, even if customer updates profile
+```
+
+#### SCD Type 1: Overwrite (Lose History)
+
+**Behavior**: Old value is overwritten with new value. History is lost.
+
+**Nike Store Example**:
+
+**Before**:
+```
+customer_id | name | city
+------------|------|------
+101         | Sarah| NYC
+```
+
+**After customer moves to LA**:
+```
+customer_id | name | city
+------------|------|------
+101         | Sarah| LA   -- NYC is gone!
+```
+
+**Use Case**:
+- ✅ Corrections to errors
+- ✅ When history is not important
+- ✅ Simple dimensions
+
+**Pros**: Simple, no history tracking needed  
+**Cons**: Loses historical data (can't answer "Where did Sarah live in 2023?")
+
+#### SCD Type 2: Add New Row (Preserve History) - MOST COMMON
+
+**Behavior**: Create new row with new values, keep old row. Full history preserved.
+
+**Nike Store Example**:
+
+**Before**:
+```
+customer_sk | customer_id | name | city | effective_date | expiry_date | is_current
+------------|-------------|------|------|----------------|-------------|------------
+1           | 101         | Sarah| NYC  | 2020-01-01     | NULL        | Y
+```
+
+**After customer moves to LA (July 1, 2023)**:
+```
+customer_sk | customer_id | name | city | effective_date | expiry_date | is_current
+------------|-------------|------|------|----------------|-------------|------------
+1           | 101         | Sarah| NYC  | 2020-01-01     | 2023-06-30  | N
+2           | 101         | Sarah| LA   | 2023-07-01     | NULL        | Y
+```
+
+**Key Columns**:
+- `customer_sk`: Surrogate key (unique for each version)
+- `customer_id`: Natural key (same for all versions)
+- `effective_date`: When this version became active
+- `expiry_date`: When this version expired (NULL = current)
+- `is_current`: Flag for current version (Y/N)
 
 **Use Case**: 
-- Corrections to errors
-- When history is not important
-- Simple dimensions
+- ✅ When history is important (MOST COMMON!)
+- ✅ Audit requirements
+- ✅ Point-in-time analysis
 
-**Example**:
-```
-Before:
-customer_id | name  | city
-------------|-------|------
-101         | John  | NYC
-
-After address change:
-customer_id | name  | city
-------------|-------|------
-101         | John  | LA
+**Query Current Address**:
+```sql
+SELECT * FROM dim_customer 
+WHERE customer_id = 101 AND is_current = TRUE;
 ```
 
-**Pros**: Simple, no history tracking needed
-**Cons**: Loses historical data
-
-#### SCD Type 2: Add New Row
-
-**Behavior**: Create new row with new values, keep old row
-
-**Use Case**: 
-- When history is important
-- Most common SCD type
-- Audit requirements
-
-**Implementation**:
-- Add `effective_date` and `expiry_date` columns
-- Add `is_current` flag
-- Add surrogate key or version number
-
-**Example**:
-```
-customer_id | name | city | effective_date | expiry_date | is_current
-------------|------|------|----------------|-------------|------------
-101         | John | NYC  | 2020-01-01     | 2023-06-30  | N
-101         | John | LA   | 2023-07-01     | NULL        | Y
+**Query Historical Address**:
+```sql
+-- Where did Sarah live on June 15, 2023?
+SELECT * FROM dim_customer 
+WHERE customer_id = 101 
+  AND '2023-06-15' BETWEEN effective_date AND COALESCE(expiry_date, '9999-12-31');
 ```
 
 **Pros**: Complete history preserved
 **Cons**: More storage, more complex queries
 
-#### SCD Type 3: Add New Column
+#### SCD Type 3: Add New Column (Store Previous Value)
 
-**Behavior**: Add column to store previous value
+**Behavior**: Add column to store previous value. Only one previous value kept.
 
-**Use Case**: 
-- Limited history needed (only previous value)
-- When only one change is tracked
+**Nike Store Example**:
 
-**Example**:
+**Before**:
+```
+customer_id | name | city
+------------|------|------
+101         | Sarah| NYC
+```
+
+**After customer moves to LA**:
 ```
 customer_id | name | current_city | previous_city
 ------------|------|--------------|--------------
-101         | John | LA           | NYC
+101         | Sarah| LA           | NYC
 ```
+
+**Use Case**:
+- ✅ Limited history needed (only previous value)
+- ✅ When only one change is tracked
 
 **Pros**: Simple, preserves one previous value
 **Cons**: Limited history (only one previous value)
 
-#### SCD Type 4: History Table
+#### SCD Type 4: History Table (Separate Table)
 
-**Behavior**: Separate table for historical values
+**Behavior**: Current values in main table, history in separate table.
 
-**Use Case**: 
-- Current values in main table
-- History in separate table
+**Nike Store Example**:
 
-**Example**:
+**Current Table**:
 ```
-Customers (Current):
 customer_id | name | city
 ------------|------|------
-101         | John | LA
+101         | Sarah| LA
+```
 
-CustomerHistory:
+**History Table**:
+```
 customer_id | city | effective_date | expiry_date
 ------------|------|----------------|-------------
 101         | NYC  | 2020-01-01     | 2023-06-30
-101         | LA   | 2023-07-01    | NULL
+101         | LA   | 2023-07-01     | NULL
 ```
+
+**Use Case**:
+- ✅ Clean separation needed
+- ✅ Fast current lookups
 
 **Pros**: Clean separation, fast current lookups
 **Cons**: Requires joins for history
 
-#### SCD Type 5: Mini-Dimension
+#### SCD Type 5: Mini-Dimension (Separate Changing Attributes)
 
-**Behavior**: Separate table for frequently changing attributes
+**Behavior**: Separate table for frequently changing attributes.
 
-**Use Case**: 
-- Some attributes change frequently
-- Others change rarely
+**Nike Store Example**:
 
-**Example**:
+**Customer (Static)**:
 ```
-Customers (Static):
 customer_id | name | birth_date
-
-CustomerDemographics (Changing):
-customer_id | age_group | income_range | effective_date
+------------|------|------------
+101         | Sarah| 1995-05-20
 ```
 
-#### SCD Type 6: Hybrid
-
-**Behavior**: Combination of Type 1, 2, and 3
+**Customer Demographics (Changing)**:
+```
+customer_id | age_group | income_range | effective_date
+------------|-----------|--------------|----------------
+101         | 25-30     | $50k-$75k    | 2020-01-01
+101         | 28-33     | $75k-$100k   | 2023-01-01
+```
 
 **Use Case**: 
-- Different attributes need different SCD types
-- Complex requirements
+- ✅ Some attributes change frequently (age, income)
+- ✅ Others change rarely (name, birth date)
 
-**Example**:
+#### SCD Type 6: Hybrid (Combination)
+
+**Behavior**: Combination of Type 1, 2, and 3.
+
+**Nike Store Example**:
 ```
-customer_id | name | current_city | previous_city | effective_date | is_current
-------------|------|--------------|---------------|----------------|------------
-101         | John | LA           | NYC           | 2023-07-01     | Y
+customer_sk | customer_id | name | current_city | previous_city | effective_date | is_current
+------------|-------------|------|--------------|---------------|----------------|------------
+1           | 101         | Sarah| LA           | NYC           | 2023-07-01     | Y
 ```
+
+**Has**:
+- Type 1: Overwrites some attributes
+- Type 2: Adds new row with effective_date
+- Type 3: Stores previous_city
+
+**Use Case**:
+- ✅ Different attributes need different SCD types
+- ✅ Complex requirements
 
 ---
 
-#### Implementing SCD Types with PySpark (Simple Examples)
+### 9. Complete Nike Store Data Model Example
 
-Assume:
-- **dim** = existing dimension (e.g. customer: `customer_id`, `name`, `city`)
-- **updates** = new or changed rows (same key, maybe new `city`)
+#### OLTP Model (Normalized - For Transactions)
 
-**Note:** Type 2 and Type 3 are **merge-style** operations: match on the business key, then either update existing rows (e.g. set `is_current = false`, `expiry_date`) or insert new rows. Below we do that with joins + unions; in **Databricks** you do the same with Delta Lake **MERGE**.
+**Purpose**: Handle daily sales transactions
 
-```python
-from pyspark.sql import functions as F
-```
-
----
-
-**SCD Type 1: Overwrite**
-
-Replace old row with new row. No history.
-
-```python
-# Keep rows that are NOT in updates, then add all updates
-unchanged = dim.join(updates.select("customer_id"), "customer_id", "left_anti")
-result_type1 = unchanged.union(updates)
-```
-
----
-
-**SCD Type 2: Add New Row**
-
-Keep old row (mark expired), add new row for same key.
-
-```python
-# Dimension has: customer_id, name, city, effective_date, expiry_date, is_current
-today = F.current_date()
-ids_to_update = updates.select("customer_id").distinct()
-
-# 1) Expire current rows that are in updates
-expired = dim.filter(F.col("is_current") == True) \
-             .join(ids_to_update, "customer_id", "inner") \
-             .withColumn("expiry_date", today) \
-             .withColumn("is_current", F.lit(False))
-
-# 2) Rows not being updated (unchanged)
-unchanged = dim.join(ids_to_update, "customer_id", "left_anti")
-
-# 3) New rows from updates
-new_rows = updates.withColumn("effective_date", today) \
-                 .withColumn("expiry_date", F.lit(None).cast("date")) \
-                 .withColumn("is_current", F.lit(True))
-
-# 4) Put it together
-result_type2 = unchanged.union(expired).union(new_rows)
-```
-
----
-
-**SCD Type 3: Add New Column (current + previous)**
-
-One row per key; store current value and one previous value (e.g. `city`, `previous_city`).
-
-```python
-# Join dimension with updates on customer_id
-joined = dim.join(updates.withColumnRenamed("city", "new_city"), "customer_id")
-
-# Where city changed: set current_city = new, previous_city = old
-updated = joined.filter(F.col("city") != F.col("new_city")) \
-    .select(
-        F.col("customer_id"),
-        F.col("name"),
-        F.col("new_city").alias("city"),
-        F.col("city").alias("previous_city")
-    )
-
-# Rows not in updates stay as-is (add null previous_city if needed)
-unchanged = dim.join(updates.select("customer_id"), "customer_id", "left_anti") \
-              .withColumn("previous_city", F.lit(None))
-
-result_type3 = unchanged.union(updated)
-```
-
----
-
-**Summary**
-
-| Type | Idea |
-|------|------|
-| **Type 1** | `unchanged = dim.left_anti(updates)` then `unchanged.union(updates)` |
-| **Type 2** | Merge-style: expire current row, insert new row with new dates and `is_current=True` |
-| **Type 3** | Merge-style: join dim + updates; set current = new value, previous = old value |
-
----
-
-#### How Databricks (Delta Lake) Solves SCD
-
-Databricks uses **Delta Lake** and a single **MERGE** statement to do SCD in one atomic operation. No manual join/union; the engine applies “when matched” / “when not matched” rules.
-
-**Setup:** Dimension table is a **Delta table** (e.g. path `/path/to/dim_customer` or `spark.table("dim_customer")`). **Source** = DataFrame or table with new/changed rows.
-
----
-
-**SCD Type 1 in Databricks (MERGE – overwrite)**
-
-Match on key; if matched, overwrite all columns; if not matched, insert.
-
-```python
-from delta.tables import DeltaTable
-
-dim_path = "/path/to/dim_customer"   # or use table name
-dim_delta = DeltaTable.forPath(spark, dim_path)
-
-dim_delta.alias("target").merge(
-    updates.alias("source"),
-    "target.customer_id = source.customer_id"
-).whenMatchedUpdateAll() \
- .whenNotMatchedInsertAll() \
- .execute()
-```
-
-**Same in SQL (Databricks SQL):**
 ```sql
-MERGE INTO delta.`/path/to/dim_customer` AS target
-USING updates AS source
-ON target.customer_id = source.customer_id
-WHEN MATCHED THEN UPDATE SET *
-WHEN NOT MATCHED THEN INSERT *;
+-- Customers
+CREATE TABLE customers (
+    customer_id SERIAL PRIMARY KEY,
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    phone VARCHAR(20),
+    city VARCHAR(50),
+    state_id VARCHAR(2) REFERENCES states(state_id),
+    zip_code VARCHAR(10),
+    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Products
+CREATE TABLE products (
+    product_id SERIAL PRIMARY KEY,
+    product_name VARCHAR(200) NOT NULL,
+    category_id INT REFERENCES categories(category_id),
+    brand_line_id INT REFERENCES brand_lines(brand_line_id),
+    price DECIMAL(10,2) NOT NULL,
+    cost DECIMAL(10,2) NOT NULL,
+    color VARCHAR(30),
+    size VARCHAR(10),
+    stock_quantity INT DEFAULT 0
+);
+
+-- Categories
+CREATE TABLE categories (
+    category_id SERIAL PRIMARY KEY,
+    category_name VARCHAR(50) NOT NULL  -- Running, Basketball, Apparel
+);
+
+-- Brand Lines
+CREATE TABLE brand_lines (
+    brand_line_id SERIAL PRIMARY KEY,
+    brand_line_name VARCHAR(50) NOT NULL  -- Air Max, Jordan, Dri-FIT
+);
+
+-- Stores
+CREATE TABLE stores (
+    store_id SERIAL PRIMARY KEY,
+    store_name VARCHAR(100) NOT NULL,
+    address VARCHAR(200),
+    city VARCHAR(50),
+    state_id VARCHAR(2) REFERENCES states(state_id),
+    zip_code VARCHAR(10),
+    store_type VARCHAR(20),  -- Flagship, Standard, Outlet
+    phone VARCHAR(20)
+);
+
+-- Sales
+CREATE TABLE sales (
+    sale_id SERIAL PRIMARY KEY,
+    customer_id INT REFERENCES customers(customer_id),
+    store_id INT REFERENCES stores(store_id),
+    sale_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    total_amount DECIMAL(10,2) NOT NULL,
+    discount_amount DECIMAL(10,2) DEFAULT 0,
+    payment_method VARCHAR(20)  -- Cash, Credit, Debit
+);
+
+-- Sale Items
+CREATE TABLE sale_items (
+    sale_id INT REFERENCES sales(sale_id),
+    product_id INT REFERENCES products(product_id),
+    quantity INT NOT NULL CHECK (quantity > 0),
+    unit_price DECIMAL(10,2) NOT NULL,
+    discount DECIMAL(10,2) DEFAULT 0,
+    PRIMARY KEY (sale_id, product_id)
+);
 ```
 
----
+#### OLAP Model (Star Schema - For Analytics)
 
-**SCD Type 2 in Databricks (MERGE – expire + insert)**
+**Purpose**: Fast analytics and reporting
 
-Match on **key + is_current = true**. If matched, **update** that row (set `expiry_date`, `is_current = false`). Then **insert** the new version (new `effective_date`, `is_current = true`). So one MERGE does both “expire” and “add new row”.
-
-```python
-from delta.tables import DeltaTable
-
-dim_delta = DeltaTable.forPath(spark, dim_path)
-
-# Source must have: customer_id, name, city (and we add effective_date, is_current in the insert)
-from pyspark.sql import functions as F
-updates_with_dates = updates.withColumn("effective_date", F.current_date()) \
-                            .withColumn("expiry_date", F.lit(None).cast("date")) \
-                            .withColumn("is_current", F.lit(True))
-
-dim_delta.alias("target").merge(
-    updates_with_dates.alias("source"),
-    "target.customer_id = source.customer_id AND target.is_current = True"
-).whenMatchedUpdate(set={
-    "expiry_date": F.current_date(),
-    "is_current": F.lit(False)
-}).whenNotMatchedInsertAll() \
- .execute()
-```
-
-**Same in SQL (Databricks SQL):**
 ```sql
-MERGE INTO delta.`/path/to/dim_customer` AS target
-USING (
-  SELECT customer_id, name, city,
-         current_date() AS effective_date,
-         cast(null AS date) AS expiry_date,
-         true AS is_current
-  FROM updates
-) AS source
-ON target.customer_id = source.customer_id AND target.is_current = true
-WHEN MATCHED THEN
-  UPDATE SET expiry_date = current_date(), is_current = false
-WHEN NOT MATCHED THEN INSERT *;
+-- Fact Table
+CREATE TABLE fact_sales (
+    sale_id BIGINT PRIMARY KEY,
+    -- Foreign Keys
+    date_id INT NOT NULL REFERENCES dim_date(date_id),
+    customer_id INT NOT NULL REFERENCES dim_customer(customer_id),
+    product_id INT NOT NULL REFERENCES dim_product(product_id),
+    store_id INT NOT NULL REFERENCES dim_store(store_id),
+    -- Measures
+    quantity INT NOT NULL,
+    revenue DECIMAL(10,2) NOT NULL,
+    discount_amount DECIMAL(10,2) DEFAULT 0,
+    cost DECIMAL(10,2) NOT NULL,
+    profit DECIMAL(10,2) NOT NULL
+);
+
+-- Date Dimension
+CREATE TABLE dim_date (
+    date_id INT PRIMARY KEY,
+    date_value DATE NOT NULL,
+    year INT NOT NULL,
+    quarter INT NOT NULL,
+    month INT NOT NULL,
+    month_name VARCHAR(20),
+    day INT NOT NULL,
+    day_of_week VARCHAR(10),
+    is_weekend BOOLEAN,
+    is_holiday BOOLEAN
+);
+
+-- Customer Dimension (SCD Type 2)
+CREATE TABLE dim_customer (
+    customer_sk SERIAL PRIMARY KEY,
+    customer_id INT NOT NULL,
+    customer_name VARCHAR(100),
+    age INT,
+    city VARCHAR(50),
+    state VARCHAR(50),
+    country VARCHAR(50),
+    customer_segment VARCHAR(20),
+    effective_date DATE NOT NULL,
+    expiry_date DATE,
+    is_current BOOLEAN DEFAULT TRUE
+);
+
+-- Product Dimension
+CREATE TABLE dim_product (
+    product_id INT PRIMARY KEY,
+    product_name VARCHAR(200) NOT NULL,
+    category VARCHAR(50),
+    brand_line VARCHAR(50),
+    color VARCHAR(30),
+    size VARCHAR(10),
+    price DECIMAL(10,2),
+    cost DECIMAL(10,2)
+);
+
+-- Store Dimension
+CREATE TABLE dim_store (
+    store_id INT PRIMARY KEY,
+    store_name VARCHAR(100) NOT NULL,
+    city VARCHAR(50),
+    state VARCHAR(50),
+    country VARCHAR(50),
+    store_type VARCHAR(20),
+    store_size_sqft INT
+);
 ```
 
 ---
 
-**SCD Type 3 in Databricks (MERGE – current + previous column)**
+### 10. Data Modeling Best Practices
 
-Match on key; if matched and value changed, update row: set `city = source.city`, `previous_city = target.city`. If not matched, insert.
+#### 1. Choose the Right Model for the Use Case
 
-```python
-dim_delta.alias("target").merge(
-    updates.alias("source"),
-    "target.customer_id = source.customer_id"
-).whenMatchedUpdate(
-    condition="target.city != source.city",
-    set={
-        "city": F.col("source.city"),
-        "previous_city": F.col("target.city")
-    }
-).whenNotMatchedInsertAll() \
- .execute()
-```
+**OLTP (Transactions)** → Normalized (3NF)
+- ✅ Fast writes
+- ✅ Data integrity
+- ✅ No redundancy
 
-**Same in SQL (Databricks SQL):**
-```sql
-MERGE INTO delta.`/path/to/dim_customer` AS target
-USING updates AS source
-ON target.customer_id = source.customer_id
-WHEN MATCHED AND target.city != source.city THEN
-  UPDATE SET city = source.city, previous_city = target.city
-WHEN NOT MATCHED THEN INSERT *;
-```
+**OLAP (Analytics)** → Star/Snowflake Schema
+- ✅ Fast reads
+- ✅ Simple queries
+- ✅ Optimized for aggregations
 
----
+#### 2. Design Fact Tables Carefully
 
-**Why use Databricks/Delta for SCD?**
+**Grain (Level of Detail)**:
+- ✅ One row per sale (transaction grain)
+- ✅ One row per day per product (daily grain)
+- ❌ Don't mix grains!
 
-| Aspect | Plain Spark (join + union) | Databricks Delta MERGE |
-|--------|----------------------------|-------------------------|
-| **Atomicity** | Multiple writes | Single atomic MERGE |
-| **Consistency** | Careful ordering needed | ACID guarantees |
-| **Performance** | Full read + full write | Only affected partitions/files |
-| **Concurrency** | Risk of overwrites | Optimistic concurrency |
-| **Time travel** | No | Yes (e.g. rollback, audit) |
+**Measures**:
+- ✅ Additive: Can be summed (revenue, quantity)
+- ✅ Semi-additive: Can be summed in some dimensions (bank balance)
+- ✅ Non-additive: Cannot be summed (ratios, percentages)
 
-So for Type 2 and Type 3 you are doing a **merge**: match on key (and for Type 2, `is_current`), then update and/or insert. Databricks implements that with Delta Lake **MERGE** in one step.
+#### 3. Design Dimension Tables Thoughtfully
 
----
+**Surrogate Keys**:
+- ✅ Use surrogate keys (auto-increment) for dimensions
+- ✅ Natural keys can change (customer email)
+- ✅ Surrogate keys never change
 
-### 8. Data Modeling Methodologies
+**SCD Strategy**:
+- ✅ Most dimensions: SCD Type 2 (preserve history)
+- ✅ Reference data: SCD Type 1 (overwrite)
+- ✅ Rarely changing: SCD Type 0 (fixed)
 
-#### Kimball Methodology (Bottom-Up)
+#### 4. Performance Considerations
 
-**Approach**: 
-- Start with business processes
-- Build data marts first
-- Combine into data warehouse
-- Dimensional modeling focus
+**Indexes**:
+- ✅ Index foreign keys in fact tables
+- ✅ Index dimension keys
+- ✅ Index frequently filtered columns
 
-**Principles**:
-- Business process oriented
-- Dimensional models (star schema)
-- Conformed dimensions
-- Incremental development
-
-**Best For**:
-- Quick delivery
-- Business user focused
-- Iterative development
-
-#### Inmon Methodology (Top-Down)
-
-**Approach**:
-- Start with enterprise data model
-- Build normalized data warehouse
-- Create data marts from warehouse
-- 3NF normalized
-
-**Principles**:
-- Enterprise-wide view
-- Normalized warehouse
-- Single source of truth
-- Data marts as views
-
-**Best For**:
-- Large enterprises
-- Complex requirements
-- Long-term projects
-
-#### Data Vault Methodology
-
-**Approach**:
-- Hub (business keys)
-- Link (relationships)
-- Satellite (descriptive attributes)
-- Designed for scalability
-
-**Best For**:
-- Large-scale data warehouses
-- Agile development
-- Historical tracking
-
----
-
-### 9. OLTP vs OLAP Data Modeling
-
-#### OLTP (Online Transaction Processing)
-
-**Purpose**: Support day-to-day operations
-
-**Characteristics**:
-- Normalized (3NF)
-- Many small transactions
-- Fast writes
-- Current data
-- Row-oriented storage
-
-**Modeling Approach**:
-- Relational model
-- Normalized tables
-- Foreign keys
-- Indexes for lookups
-
-**Example**: E-commerce order processing system
-
-#### OLAP (Online Analytical Processing)
-
-**Purpose**: Support analytics and reporting
-
-**Characteristics**:
-- Denormalized (star schema)
-- Few large queries
-- Fast reads
-- Historical data
-- Column-oriented storage
-
-**Modeling Approach**:
-- Dimensional model
-- Star/Snowflake schema
-- Fact and dimension tables
-- Pre-aggregated data
-
-**Example**: Sales analytics data warehouse
-
----
-
-### 10. Benefits of Data Modeling
-
-#### For Development
-- **Reduces Errors**: Catch issues early in design phase
-- **Consistency**: Standardized approach across organization
-- **Documentation**: Visual representation of data structure
-- **Communication**: Common language for stakeholders
-
-#### For Performance
-- **Query Optimization**: Proper indexing and structure
-- **Storage Efficiency**: Normalization reduces redundancy
-- **Scalability**: Design supports growth
-
-#### For Business
-- **Requirements Alignment**: Model reflects business needs
-- **Data Quality**: Constraints ensure data integrity
-- **Analytics**: Dimensional models enable fast reporting
-- **Governance**: Clear data ownership and rules
-
-#### For Maintenance
-- **Easier Updates**: Clear structure makes changes easier
-- **Troubleshooting**: Models help identify issues
-- **Onboarding**: New team members understand structure quickly
-
----
-
-## 🏗️ Design Patterns
-
-### Pattern 1: Star Schema for Analytics
-
-**When**: Building data warehouse for business intelligence
-
-**Structure**:
-- Central fact table
-- Surrounding dimension tables
-- Denormalized dimensions
-
-**Example**: Sales analytics
-```
-Fact: Sales
-Dimensions: Date, Customer, Product, Store, Promotion
-```
-
-### Pattern 2: Snowflake Schema for Large Dimensions
-
-**When**: Dimension tables are very large with many attributes
-
-**Structure**:
-- Normalized dimensions
-- Hierarchical relationships
-- Reduced storage
-
-**Example**: Time dimension with Year → Quarter → Month → Day
-
-### Pattern 3: Fact Constellation (Galaxy Schema)
-
-**When**: Multiple fact tables share dimensions
-
-**Structure**:
-- Multiple fact tables
-- Shared conformed dimensions
-- More complex than star schema
-
-**Example**: Sales and Inventory facts sharing Product and Date dimensions
-
-### Pattern 4: One Big Table for Simple Analytics
-
-**When**: 
-- Small to medium datasets
-- Simple analytics needs
-- Columnar database (BigQuery, Redshift)
-
-**Structure**:
-- Single wide table
-- All dimensions flattened
-- Maximum denormalization
+**Partitioning**:
+- ✅ Partition fact tables by date
+- ✅ Improves query performance
+- ✅ Easier data management
 
 ---
 
@@ -1438,51 +1338,54 @@ Dimensions: Date, Customer, Product, Store, Promotion
 **Answer**:
 
 **Star Schema**:
-- Denormalized structure
+- Denormalized dimensions (all attributes in one table)
 - Single level of dimensions
-- Dimension tables don't reference other tables
 - Faster queries (fewer joins)
 - More storage (data redundancy)
 - Easier to understand
 
 **Snowflake Schema**:
-- Normalized structure
+- Normalized dimensions (broken into multiple tables)
 - Hierarchical dimensions
-- Dimension tables reference other dimension tables
 - More joins (slower queries)
 - Less storage (normalized)
 - More complex
 
-**When to Use**:
-- **Star**: Most analytics use cases, faster queries needed
-- **Snowflake**: Large dimensions, storage is concern, dimension data changes frequently
+**Nike Store Example**:
 
-**Example**:
+**Star Schema**:
 ```sql
--- Star Schema
-SELECT 
-    d.year,
-    c.city,
-    SUM(s.revenue) as total_revenue
-FROM sales s
-JOIN date_dim d ON s.date_id = d.date_id
-JOIN customer_dim c ON s.customer_id = c.customer_id
-GROUP BY d.year, c.city;
+-- One table with all date info
+dim_date: date_id, date, year, quarter, month, day
 
--- Snowflake Schema (more joins)
-SELECT 
-    y.year_value,
-    ci.city_name,
-    SUM(s.revenue) as total_revenue
-FROM sales s
-JOIN date_dim d ON s.date_id = d.date_id
-JOIN month_dim m ON d.month_id = m.month_id
-JOIN quarter_dim q ON m.quarter_id = q.quarter_id
-JOIN year_dim y ON q.year_id = y.year_id
-JOIN customer_dim c ON s.customer_id = c.customer_id
-JOIN city_dim ci ON c.city_id = ci.city_id
-GROUP BY y.year_value, ci.city_name;
+-- Query: 1 join
+SELECT d.year, SUM(f.revenue)
+FROM fact_sales f
+JOIN dim_date d ON f.date_id = d.date_id
+GROUP BY d.year;
 ```
+
+**Snowflake Schema**:
+```sql
+-- Multiple tables
+dim_date: date_id, date, day, month_id
+dim_month: month_id, month, quarter_id
+dim_quarter: quarter_id, quarter, year_id
+dim_year: year_id, year
+
+-- Query: 4 joins!
+SELECT y.year, SUM(f.revenue)
+FROM fact_sales f
+JOIN dim_date d ON f.date_id = d.date_id
+JOIN dim_month m ON d.month_id = m.month_id
+JOIN dim_quarter q ON m.quarter_id = q.quarter_id
+JOIN dim_year y ON q.year_id = y.year_id
+GROUP BY y.year;
+```
+
+**When to Use**:
+- **Star**: Most analytics (default choice!)
+- **Snowflake**: Large dimensions, storage concern
 
 ---
 
@@ -1490,250 +1393,145 @@ GROUP BY y.year_value, ci.city_name;
 
 **Answer**:
 
-**Normalization**: Process of organizing data to reduce redundancy and improve data integrity
+**Normalization**: Organizing data to reduce redundancy and improve integrity.
 
 **Normal Forms**:
 1. **1NF**: Atomic values, no repeating groups
 2. **2NF**: No partial dependencies
 3. **3NF**: No transitive dependencies
-4. **BCNF**: Every determinant is a candidate key
+
+**Nike Store Example - Before Normalization**:
+```
+Bad Table:
+sale_id | customer_name | customer_email | product_name | price
+--------|---------------|----------------|--------------|-------
+1       | Sarah         | sarah@email.com| Air Max 270  | $150
+1       | Sarah         | sarah@email.com| Dri-FIT Shirt| $30
+```
+
+**Problems**:
+- ❌ Customer info repeated
+- ❌ Product info repeated
+- ❌ Hard to update
+
+**After Normalization (3NF)**:
+```
+Customers: customer_id, name, email
+Products: product_id, name, price
+Sales: sale_id, customer_id, date
+SaleItems: sale_id, product_id, quantity
+```
 
 **Benefits**:
-- Reduces data redundancy
-- Prevents update anomalies
-- Ensures data consistency
-- Saves storage space
-- Maintains referential integrity
+- ✅ No redundancy
+- ✅ Easy to update
+- ✅ Data consistency
+- ✅ Saves storage
 
 **Trade-offs**:
-- More tables = more joins
-- Can impact query performance
-- More complex queries
-
-**When to Normalize**:
-- OLTP systems (transactional)
-- When data integrity is critical
-- When storage is expensive
-- When updates are frequent
-
-**When to Denormalize**:
-- OLAP systems (analytics)
-- Read-heavy workloads
-- When joins are expensive
-- When storage is cheap
+- ❌ More tables = more joins
+- ❌ Can be slower for analytics
 
 ---
 
-### Q3: Explain Slowly Changing Dimensions (SCD) Types
+### Q3: Explain SCD Type 2 (Most Important!)
 
 **Answer**:
 
-**SCD Types**:
+**SCD Type 2**: Add new row when dimension changes. Preserves full history.
 
-1. **Type 0**: Fixed - never changes
-2. **Type 1**: Overwrite - lose history
-3. **Type 2**: Add row - preserve history (most common)
-4. **Type 3**: Add column - store previous value
-5. **Type 4**: History table - separate table
-6. **Type 5**: Mini-dimension - separate changing attributes
-7. **Type 6**: Hybrid - combination
+**Nike Store Example**:
 
-**Type 2 Example** (Most Important):
-```sql
--- Customer dimension with SCD Type 2
-CREATE TABLE customer_dim (
-    customer_sk SERIAL PRIMARY KEY,  -- Surrogate key
-    customer_id INT,                  -- Natural key
-    name VARCHAR(100),
-    city VARCHAR(100),
-    effective_date DATE,
-    expiry_date DATE,
-    is_current BOOLEAN DEFAULT TRUE
-);
+**Customer moves from NYC to LA**:
 
--- When customer moves from NYC to LA
--- Old record
-INSERT INTO customer_dim VALUES 
-(1, 101, 'John', 'NYC', '2020-01-01', '2023-06-30', FALSE);
-
--- New record
-INSERT INTO customer_dim VALUES 
-(2, 101, 'John', 'LA', '2023-07-01', NULL, TRUE);
+**Before**:
+```
+customer_sk | customer_id | name | city | effective_date | expiry_date | is_current
+------------|-------------|------|------|----------------|-------------|------------
+1           | 101         | Sarah| NYC  | 2020-01-01     | NULL        | Y
 ```
 
-**When to Use Each**:
-- **Type 1**: Corrections, history not needed
-- **Type 2**: Most common, full history needed
-- **Type 3**: Only previous value needed
-- **Type 4**: Clean separation needed
+**After (July 1, 2023)**:
+```
+customer_sk | customer_id | name | city | effective_date | expiry_date | is_current
+------------|-------------|------|------|----------------|-------------|------------
+1           | 101         | Sarah| NYC  | 2020-01-01     | 2023-06-30  | N
+2           | 101         | Sarah| LA   | 2023-07-01     | NULL        | Y
+```
+
+**Key Columns**:
+- `customer_sk`: Surrogate key (unique per version)
+- `customer_id`: Natural key (same for all versions)
+- `effective_date`: When version became active
+- `expiry_date`: When version expired (NULL = current)
+- `is_current`: Flag for current version
+
+**Query Current**:
+```sql
+SELECT * FROM dim_customer 
+WHERE customer_id = 101 AND is_current = TRUE;
+```
+
+**Query Historical**:
+```sql
+SELECT * FROM dim_customer 
+WHERE customer_id = 101 
+  AND '2023-06-15' BETWEEN effective_date AND COALESCE(expiry_date, '9999-12-31');
+```
+
+**When to Use**:
+- ✅ When history is important (MOST COMMON!)
+- ✅ Audit requirements
+- ✅ Point-in-time analysis
 
 ---
 
-### Q4: Design a data model for an e-commerce system
+### Q4: Design a data model for a retail store (Nike Store)
 
 **Answer**:
 
 **Requirements**:
-- Customers place orders
-- Orders contain multiple products
-- Track order history
-- Support analytics
+- Track sales transactions
+- Analyze by customer, product, store, date
+- Support both transactions and analytics
 
-**Approach**:
+**Approach**: Two models!
 
-1. **Identify Entities**:
-   - Customer, Order, Product, OrderItem, Payment, Shipment
-
-2. **Design OLTP Model** (Normalized):
+**1. OLTP Model (Normalized - For Transactions)**:
 ```sql
--- Customers
-CREATE TABLE customers (
-    customer_id SERIAL PRIMARY KEY,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    first_name VARCHAR(50),
-    last_name VARCHAR(50),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Products
-CREATE TABLE products (
-    product_id SERIAL PRIMARY KEY,
-    name VARCHAR(200) NOT NULL,
-    description TEXT,
-    price DECIMAL(10,2) NOT NULL,
-    category_id INT REFERENCES categories(category_id),
-    stock_quantity INT DEFAULT 0
-);
-
--- Orders
-CREATE TABLE orders (
-    order_id SERIAL PRIMARY KEY,
-    customer_id INT REFERENCES customers(customer_id),
-    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(20) DEFAULT 'pending',
-    total_amount DECIMAL(10,2)
-);
-
--- Order Items
-CREATE TABLE order_items (
-    order_id INT REFERENCES orders(order_id),
-    product_id INT REFERENCES products(product_id),
-    quantity INT NOT NULL,
-    unit_price DECIMAL(10,2) NOT NULL,
-    PRIMARY KEY (order_id, product_id)
-);
+-- Normalized tables for daily operations
+customers → sales → sale_items → products
 ```
 
-3. **Design OLAP Model** (Star Schema):
+**2. OLAP Model (Star Schema - For Analytics)**:
 ```sql
--- Fact Table
-CREATE TABLE fact_sales (
-    sale_id SERIAL PRIMARY KEY,
-    date_id INT REFERENCES dim_date(date_id),
-    customer_id INT REFERENCES dim_customer(customer_id),
-    product_id INT REFERENCES dim_product(product_id),
-    order_id INT,
-    quantity INT,
-    revenue DECIMAL(10,2),
-    discount_amount DECIMAL(10,2)
-);
-
--- Dimension Tables
-CREATE TABLE dim_date (
-    date_id INT PRIMARY KEY,
-    date_value DATE,
-    year INT,
-    quarter INT,
-    month INT,
-    day INT,
-    day_of_week VARCHAR(10)
-);
-
-CREATE TABLE dim_customer (
-    customer_sk SERIAL PRIMARY KEY,
-    customer_id INT,
-    customer_name VARCHAR(100),
-    city VARCHAR(50),
-    state VARCHAR(50),
-    country VARCHAR(50),
-    effective_date DATE,
-    expiry_date DATE,
-    is_current BOOLEAN
-);
-
-CREATE TABLE dim_product (
-    product_id INT PRIMARY KEY,
-    product_name VARCHAR(200),
-    category VARCHAR(50),
-    brand VARCHAR(50),
-    price DECIMAL(10,2)
-);
+-- Star schema for analytics
+fact_sales (center)
+  ↓
+dim_customer, dim_product, dim_store, dim_date (around it)
 ```
+
+**Complete Design**:
+- See "Complete Nike Store Data Model Example" section above
 
 ---
 
-### Q5: When would you choose normalization vs denormalization?
-
-**Answer**:
-
-**Choose Normalization When**:
-- **OLTP Systems**: Transactional databases
-- **Data Integrity Critical**: Financial, healthcare systems
-- **Frequent Updates**: Data changes often
-- **Storage Expensive**: Need to minimize storage
-- **Consistency Important**: Prevent update anomalies
-
-**Choose Denormalization When**:
-- **OLAP Systems**: Analytics, data warehouses
-- **Read-Heavy**: Mostly SELECT queries
-- **Performance Critical**: Query speed is priority
-- **Storage Cheap**: Can afford redundancy
-- **Simple Queries**: Want to avoid complex joins
-
-**Hybrid Approach**:
-- Normalize OLTP source systems
-- Denormalize for analytics (data warehouse)
-- Use ETL to transform normalized → denormalized
-
-**Example**:
-```
-OLTP (Normalized):
-customers → orders → order_items → products
-
-OLAP (Denormalized):
-fact_sales with flattened customer and product attributes
-```
-
----
-
-### Q6: What is a fact table and dimension table?
+### Q5: What is a fact table and dimension table?
 
 **Answer**:
 
 **Fact Table**:
-- Contains measurable business events
-- Stores metrics/measures (sales, clicks, orders)
+- Contains measurable business events (sales, clicks, orders)
+- Stores metrics/measures (revenue, quantity, profit)
 - Foreign keys to dimension tables
 - Usually large (millions/billions of rows)
 - Additive measures (can be summed)
 
-**Characteristics**:
-- Grain: Level of detail (e.g., one row per sale)
-- Measures: Numeric values (revenue, quantity)
-- Foreign keys: Links to dimensions
-
-**Example**:
+**Nike Store Example**:
 ```sql
-CREATE TABLE fact_sales (
-    sale_id INT PRIMARY KEY,
-    date_id INT,           -- FK to dim_date
-    customer_id INT,       -- FK to dim_customer
-    product_id INT,        -- FK to dim_product
-    store_id INT,          -- FK to dim_store
-    quantity INT,          -- Measure
-    revenue DECIMAL(10,2), -- Measure
-    discount DECIMAL(10,2) -- Measure
-);
+fact_sales:
+  sale_id, date_id, customer_id, product_id, store_id,
+  quantity (measure), revenue (measure), profit (measure)
 ```
 
 **Dimension Table**:
@@ -1743,94 +1541,37 @@ CREATE TABLE fact_sales (
 - Text attributes (names, descriptions)
 - Used for filtering and grouping
 
-**Characteristics**:
-- Descriptive attributes
-- Hierarchical relationships possible
-- Used in WHERE and GROUP BY clauses
-
-**Example**:
+**Nike Store Example**:
 ```sql
-CREATE TABLE dim_customer (
-    customer_id INT PRIMARY KEY,
-    customer_name VARCHAR(100),
-    city VARCHAR(50),
-    state VARCHAR(50),
-    country VARCHAR(50),
-    customer_segment VARCHAR(20)
-);
+dim_customer:
+  customer_id, customer_name, city, state, customer_segment
+
+dim_product:
+  product_id, product_name, category, brand_line, price
 ```
 
 **Relationship**:
-- Fact table references dimension tables via foreign keys
+- Fact table references dimensions via foreign keys
 - Star schema: Fact in center, dimensions around it
-- Typical query: Join fact with dimensions, filter/group by dimensions, aggregate measures
+- Query: Join fact with dimensions, filter/group by dimensions, aggregate measures
 
 ---
 
 ## 📝 Practice Exercises
 
-### Exercise 1: Design a Star Schema
+### Exercise 1: Design a Star Schema for Nike Store
 
-**Scenario**: Design a data warehouse for a gaming company tracking player events
+**Scenario**: Design a data warehouse for Nike store sales analytics
 
 **Requirements**:
-- Track game events (login, purchase, level_complete)
-- Analyze by: date, player, game, device
-- Metrics: event_count, revenue, play_time_minutes
+- Track sales by: date, customer, product, store
+- Metrics: quantity, revenue, profit, discount
+- Support queries like:
+  - Total sales by customer city
+  - Sales by product category and month
+  - Top 10 customers by revenue
 
-**Solution Approach**:
-
-```sql
--- Fact Table
-CREATE TABLE fact_game_events (
-    event_id BIGINT PRIMARY KEY,
-    date_id INT REFERENCES dim_date(date_id),
-    player_id INT REFERENCES dim_player(player_id),
-    game_id INT REFERENCES dim_game(game_id),
-    device_id INT REFERENCES dim_device(device_id),
-    event_type VARCHAR(50),
-    event_count INT DEFAULT 1,
-    revenue DECIMAL(10,2),
-    play_time_minutes INT
-);
-
--- Dimension Tables
-CREATE TABLE dim_date (
-    date_id INT PRIMARY KEY,
-    date_value DATE,
-    year INT,
-    quarter INT,
-    month INT,
-    week INT,
-    day INT,
-    day_of_week VARCHAR(10),
-    is_weekend BOOLEAN
-);
-
-CREATE TABLE dim_player (
-    player_id INT PRIMARY KEY,
-    player_name VARCHAR(100),
-    registration_date DATE,
-    country VARCHAR(50),
-    player_segment VARCHAR(20), -- casual, regular, premium
-    total_spent DECIMAL(10,2)
-);
-
-CREATE TABLE dim_game (
-    game_id INT PRIMARY KEY,
-    game_name VARCHAR(100),
-    genre VARCHAR(50),
-    platform VARCHAR(50),
-    release_date DATE
-);
-
-CREATE TABLE dim_device (
-    device_id INT PRIMARY KEY,
-    device_type VARCHAR(50), -- mobile, desktop, console
-    os VARCHAR(50),
-    manufacturer VARCHAR(50)
-);
-```
+**Solution**: See "Star Schema" section above for complete design.
 
 ---
 
@@ -1838,64 +1579,28 @@ CREATE TABLE dim_device (
 
 **Given Table** (Violates normalization):
 ```
-Orders:
-order_id | customer_name | customer_email | product_name | category | quantity | price | order_date
+sales:
+sale_id | customer_name | customer_email | product_name | category | quantity | price | sale_date
 ```
 
 **Solution**:
 
-```sql
--- Step 1: 1NF - Separate order items
-Orders:
-order_id | customer_id | order_date
+**Step 1: 1NF** - Separate sale items
+```
+sales: sale_id, customer_id, sale_date
+sale_items: sale_id, product_id, quantity, price
+```
 
-OrderItems:
-order_id | product_id | quantity | price
+**Step 2: 2NF** - Remove partial dependencies
+```
+customers: customer_id, customer_name, customer_email
+products: product_id, product_name, category_id
+categories: category_id, category_name
+```
 
--- Step 2: 2NF - Remove partial dependencies
-Customers:
-customer_id | customer_name | customer_email
-
-Products:
-product_id | product_name | category_id
-
-Categories:
-category_id | category_name
-
--- Step 3: 3NF - Remove transitive dependencies
+**Step 3: 3NF** - Remove transitive dependencies
+```
 -- Already in 3NF after step 2
-
--- Final Normalized Schema:
-CREATE TABLE customers (
-    customer_id SERIAL PRIMARY KEY,
-    customer_name VARCHAR(100),
-    customer_email VARCHAR(100) UNIQUE
-);
-
-CREATE TABLE categories (
-    category_id SERIAL PRIMARY KEY,
-    category_name VARCHAR(50)
-);
-
-CREATE TABLE products (
-    product_id SERIAL PRIMARY KEY,
-    product_name VARCHAR(200),
-    category_id INT REFERENCES categories(category_id)
-);
-
-CREATE TABLE orders (
-    order_id SERIAL PRIMARY KEY,
-    customer_id INT REFERENCES customers(customer_id),
-    order_date DATE
-);
-
-CREATE TABLE order_items (
-    order_id INT REFERENCES orders(order_id),
-    product_id INT REFERENCES products(product_id),
-    quantity INT,
-    price DECIMAL(10,2),
-    PRIMARY KEY (order_id, product_id)
-);
 ```
 
 ---
@@ -1904,77 +1609,29 @@ CREATE TABLE order_items (
 
 **Scenario**: Track customer address changes over time
 
-**Requirements**:
-- Preserve full history
-- Easy to query current address
-- Support point-in-time queries
-
-**Solution**:
-
-```sql
-CREATE TABLE dim_customer (
-    customer_sk SERIAL PRIMARY KEY,  -- Surrogate key
-    customer_id INT NOT NULL,         -- Natural key
-    customer_name VARCHAR(100),
-    address VARCHAR(200),
-    city VARCHAR(50),
-    state VARCHAR(50),
-    zip_code VARCHAR(10),
-    effective_date DATE NOT NULL,
-    expiry_date DATE,
-    is_current BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Insert initial record
-INSERT INTO dim_customer 
-(customer_id, customer_name, address, city, state, zip_code, effective_date)
-VALUES 
-(101, 'John Doe', '123 Main St', 'New York', 'NY', '10001', '2020-01-01');
-
--- When customer moves (SCD Type 2)
--- Step 1: Expire old record
-UPDATE dim_customer 
-SET expiry_date = '2023-06-30', is_current = FALSE
-WHERE customer_id = 101 AND is_current = TRUE;
-
--- Step 2: Insert new record
-INSERT INTO dim_customer 
-(customer_id, customer_name, address, city, state, zip_code, effective_date)
-VALUES 
-(101, 'John Doe', '456 Oak Ave', 'Los Angeles', 'CA', '90001', '2023-07-01');
-
--- Query current address
-SELECT * FROM dim_customer 
-WHERE customer_id = 101 AND is_current = TRUE;
-
--- Query historical address at specific date
-SELECT * FROM dim_customer 
-WHERE customer_id = 101 
-  AND '2022-06-15' BETWEEN effective_date AND COALESCE(expiry_date, '9999-12-31');
-```
+**Solution**: See "SCD Type 2" section above for complete implementation.
 
 ---
 
 ## ✅ Check Your Understanding
 
-1. **What are the three levels of data models and their purposes?**
+1. **What are facts and dimensions? Give a Nike store example.**
 2. **Explain the difference between Star Schema and Snowflake Schema.**
-3. **What is normalization and what are the first three normal forms?**
+3. **What is normalization? What are 1NF, 2NF, 3NF?**
 4. **When would you use SCD Type 1 vs Type 2?**
-5. **What is the difference between a fact table and dimension table?**
+5. **What is the difference between OLTP and OLAP data modeling?**
 6. **When should you normalize vs denormalize?**
-7. **Explain the Kimball vs Inmon methodology.**
-8. **What is the difference between OLTP and OLAP data modeling?**
-9. **How do you determine the grain of a fact table?**
-10. **What are the benefits of data modeling?**
+7. **What is the grain of a fact table?**
+8. **Explain surrogate keys vs natural keys.**
+9. **What are the three levels of data models?**
+10. **How do you design a fact table?**
 
 ---
 
 ## 🎯 Next Steps
 
 Once you're comfortable with this topic, we'll move to:
-- **Topic 3: Data File Formats** (ORC, Parquet, Avro, JSON, CSV)
+- **Topic 3: Advanced SQL** (Window functions, complex queries, optimization)
 
 **Study Time**: Spend 3-4 days on this topic, practice designing schemas, then let me know when you're ready to move on!
 
@@ -1982,43 +1639,10 @@ Once you're comfortable with this topic, we'll move to:
 
 ## 📚 Additional Resources
 
-### Official Documentation & Guides
-- [IBM Data Modeling Guide](https://www.ibm.com/think/topics/data-modeling) - Comprehensive guide on data modeling concepts
-- [Kimball Group Dimensional Modeling Techniques](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/) - Official Kimball methodology resources
-- [Ralph Kimball's Data Warehouse Toolkit](https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/books/) - The definitive guide to dimensional modeling
-
-### Online Courses & Tutorials
-- **DataCamp**: [Introduction to Data Modeling in Snowflake](https://www.datacamp.com/courses/introduction-to-data-modeling-in-snowflake) - Hands-on exercises for dimensional modeling
-- **Microsoft Learn**: [Data Warehouse Labs](https://microsoftlearning.github.io/mslearn-fabric/Instructions/Labs/06-data-warehouse.html) - Practice data warehouse design
-- **Coursera**: Data Modeling courses from top universities
-
-### Practice Platforms
-- **TestDome**: [Data Warehouse Online Test](https://www.testdome.com/tests/data-warehouse-online-test/210) - Assess your data modeling skills
-- **LeetCode**: SQL problems that test normalization and schema design
-- **StrataScratch**: Real-world data modeling problems from companies
-
-### Books
 - **"The Data Warehouse Toolkit"** by Ralph Kimball - Essential for dimensional modeling
-- **"Data Modeling Made Simple"** by Steve Hoberman - Practical guide
-- **"Data Modeling Essentials"** by Graeme Simsion - Comprehensive textbook
-
-### Tools for Data Modeling
-- **dbdiagram.io** - Free ER diagram tool
-- **Lucidchart** - Professional diagramming
-- **ER/Studio** - Enterprise data modeling
-- **Draw.io** - Free diagramming tool
-- **pgAdmin** - PostgreSQL schema design
-- **MySQL Workbench** - MySQL schema design
-
-### Interview Preparation
-- **InterviewQuery**: [Data Modeling Interview Questions](https://interviewquery.com/learning-paths/data-engineering-interview/dimensional-modeling/) - Practice questions
-- **Adaface**: [92 Data Modeling Interview Questions](https://www.adaface.com/blog/data-modeling-interview-questions/) - Comprehensive question bank
-- **InterviewKickstart**: [90+ Data Modeling Interview Questions](https://interviewkickstart.com/blogs/interview-questions/data-modeling-interview-questions) - Detailed answers
-
-### Community & Forums
-- **Stack Overflow**: Data modeling tag for Q&A
-- **Reddit**: r/dataengineering, r/Database
-- **Data Engineering Podcast**: Episodes on data modeling
+- **"Designing Data-Intensive Applications"** by Martin Kleppmann - Chapter 2-3
+- **Kimball Group**: Dimensional modeling techniques
+- **dbdiagram.io**: Free ER diagram tool
 
 ---
 
