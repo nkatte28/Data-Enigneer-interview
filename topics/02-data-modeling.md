@@ -46,7 +46,146 @@ Data Model Answer:
 
 ---
 
-### 2. Facts and Dimensions: The Foundation (Nike Store Example)
+### 2. Different Levels of Data Models
+
+Data modeling has **three levels**, from abstract (business view) to concrete (database code).
+
+#### 2.1 Conceptual Data Model - "What Does the Business Need?"
+
+**Purpose**: High-level business view (WHAT, not HOW)
+
+**Nike Store Example**:
+
+**Business Entities**:
+- Customer (people who buy)
+- Product (Nike items sold)
+- Sale (the transaction)
+- Store (where sales happen)
+
+**Business Relationships**:
+- A Customer can make many Sales (1:many)
+- A Sale contains many Products (many:many)
+- A Product can be in many Sales (many:many)
+- A Store has many Sales (1:many)
+
+**Business Attributes** (no data types yet):
+- Customer: Name, Email, City
+  - Product: Product Name, Price, Category
+- Sale: Date, Total Amount
+- Store: Store Name, Location
+
+**Business Rules**:
+- Every Sale must have at least one Product
+- Every Sale must belong to one Customer
+  - Customer Email must be unique
+
+**Key Point**: No technical details - just business concepts!
+
+#### 2.2 Logical Data Model - "How is Data Organized?"
+
+**Purpose**: Detailed structure with generic data types (any database system)
+
+**Nike Store Example**:
+
+```sql
+-- Generic data types (works with PostgreSQL, MySQL, Oracle, etc.)
+
+Customer Entity:
+  - customer_id: Integer, Primary Key
+  - first_name: String(50), Required
+  - last_name: String(50), Required
+  - email: String(100), Unique, Required
+  - city: String(50), Optional
+  - registration_date: DateTime, Required
+
+Product Entity:
+  - product_id: Integer, Primary Key
+  - product_name: String(200), Required
+  - category: String(50), Required  -- Running, Basketball, Apparel
+  - brand_line: String(50), Required  -- Air Max, Jordan, Dri-FIT
+  - price: Decimal(10,2), Required
+  - color: String(30), Optional
+
+Sale Entity:
+  - sale_id: Integer, Primary Key
+  - customer_id: Integer, Foreign Key -> Customer.customer_id
+  - store_id: Integer, Foreign Key -> Store.store_id
+  - sale_date: DateTime, Required
+  - total_amount: Decimal(10,2), Required
+
+SaleItem Entity (for many-to-many):
+  - sale_id: Integer, Foreign Key -> Sale.sale_id
+  - product_id: Integer, Foreign Key -> Product.product_id
+  - quantity: Integer, Required
+  - unit_price: Decimal(10,2), Required
+```
+
+**Key Point**: Uses generic types (Integer, String, DateTime) - not specific to any database!
+
+#### 2.3 Physical Data Model - "How is it Stored in PostgreSQL/MySQL?"
+
+**Purpose**: DBMS-specific implementation with performance optimizations
+
+**Nike Store Example - PostgreSQL**:
+
+```sql
+-- PostgreSQL-specific syntax
+
+CREATE TABLE customers (
+    customer_id SERIAL PRIMARY KEY,  -- SERIAL = PostgreSQL auto-increment
+    first_name VARCHAR(50) NOT NULL,
+    last_name VARCHAR(50) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL,
+    city VARCHAR(50),
+    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Performance indexes
+    INDEX idx_customer_email (email),
+    INDEX idx_customer_city (city)
+) PARTITION BY RANGE (registration_date);  -- Partitioning for performance
+
+CREATE TABLE products (
+    product_id SERIAL PRIMARY KEY,
+    product_name VARCHAR(200) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    brand_line VARCHAR(50) NOT NULL,
+    price DECIMAL(10,2) NOT NULL CHECK (price > 0),
+    color VARCHAR(30),
+    INDEX idx_product_category (category),
+    INDEX idx_product_brand (brand_line)
+);
+
+CREATE TABLE sales (
+    sale_id SERIAL PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers(customer_id),
+    store_id INTEGER NOT NULL REFERENCES stores(store_id),
+    sale_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    total_amount DECIMAL(10,2) NOT NULL CHECK (total_amount >= 0),
+    INDEX idx_sale_customer (customer_id),
+    INDEX idx_sale_date (sale_date),
+    INDEX idx_sale_store (store_id)
+) PARTITION BY RANGE (sale_date);
+```
+
+**Key Differences**:
+- ✅ Uses `SERIAL` (PostgreSQL-specific)
+- ✅ Includes indexes for performance
+- ✅ Includes partitioning strategy
+- ✅ Includes constraints (CHECK, NOT NULL)
+
+**Comparison Table**:
+
+| Aspect | Conceptual | Logical | Physical |
+|--------|------------|---------|----------|
+| **Focus** | Business concepts | Data structure | Database implementation |
+| **Language** | Business terms | Generic technical | DBMS-specific syntax |
+| **Data Types** | None | Generic (INT, VARCHAR) | Specific (SERIAL, TIMESTAMP) |
+| **Example** | "Customer has Name" | `customer_id: Integer` | `customer_id SERIAL PRIMARY KEY` |
+
+---
+
+### 3. Facts and Dimensions: The Foundation for Analytics (Nike Store Example)
+
+> **Note**: Facts and Dimensions are the foundation of **dimensional modeling (OLAP/analytics)**. We'll cover **normalized modeling (OLTP/transactions)** in the next section. Understanding both approaches helps you choose the right model for your use case.
 
 **The Simplest Way to Understand**:
 
@@ -152,143 +291,6 @@ GROUP BY c.city
 **Memory Trick**:
 - **Facts** = "What happened?" → Numbers, metrics, measurements
 - **Dimensions** = "Who/What/When/Where?" → Descriptions, attributes, context
-
----
-
-### 3. Different Levels of Data Models
-
-Data modeling has **three levels**, from abstract (business view) to concrete (database code).
-
-#### 3.1 Conceptual Data Model - "What Does the Business Need?"
-
-**Purpose**: High-level business view (WHAT, not HOW)
-
-**Nike Store Example**:
-
-**Business Entities**:
-- Customer (people who buy)
-- Product (Nike items sold)
-- Sale (the transaction)
-- Store (where sales happen)
-
-**Business Relationships**:
-- A Customer can make many Sales (1:many)
-- A Sale contains many Products (many:many)
-- A Product can be in many Sales (many:many)
-- A Store has many Sales (1:many)
-
-**Business Attributes** (no data types yet):
-- Customer: Name, Email, City
-  - Product: Product Name, Price, Category
-- Sale: Date, Total Amount
-- Store: Store Name, Location
-
-**Business Rules**:
-- Every Sale must have at least one Product
-- Every Sale must belong to one Customer
-  - Customer Email must be unique
-
-**Key Point**: No technical details - just business concepts!
-
-#### 3.2 Logical Data Model - "How is Data Organized?"
-
-**Purpose**: Detailed structure with generic data types (any database system)
-
-**Nike Store Example**:
-
-```sql
--- Generic data types (works with PostgreSQL, MySQL, Oracle, etc.)
-
-Customer Entity:
-  - customer_id: Integer, Primary Key
-  - first_name: String(50), Required
-  - last_name: String(50), Required
-  - email: String(100), Unique, Required
-  - city: String(50), Optional
-  - registration_date: DateTime, Required
-
-Product Entity:
-  - product_id: Integer, Primary Key
-  - product_name: String(200), Required
-  - category: String(50), Required  -- Running, Basketball, Apparel
-  - brand_line: String(50), Required  -- Air Max, Jordan, Dri-FIT
-  - price: Decimal(10,2), Required
-  - color: String(30), Optional
-
-Sale Entity:
-  - sale_id: Integer, Primary Key
-  - customer_id: Integer, Foreign Key -> Customer.customer_id
-  - store_id: Integer, Foreign Key -> Store.store_id
-  - sale_date: DateTime, Required
-  - total_amount: Decimal(10,2), Required
-
-SaleItem Entity (for many-to-many):
-  - sale_id: Integer, Foreign Key -> Sale.sale_id
-  - product_id: Integer, Foreign Key -> Product.product_id
-  - quantity: Integer, Required
-  - unit_price: Decimal(10,2), Required
-```
-
-**Key Point**: Uses generic types (Integer, String, DateTime) - not specific to any database!
-
-#### 3.3 Physical Data Model - "How is it Stored in PostgreSQL/MySQL?"
-
-**Purpose**: DBMS-specific implementation with performance optimizations
-
-**Nike Store Example - PostgreSQL**:
-
-```sql
--- PostgreSQL-specific syntax
-
-CREATE TABLE customers (
-    customer_id SERIAL PRIMARY KEY,  -- SERIAL = PostgreSQL auto-increment
-    first_name VARCHAR(50) NOT NULL,
-    last_name VARCHAR(50) NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL,
-    city VARCHAR(50),
-    registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    -- Performance indexes
-    INDEX idx_customer_email (email),
-    INDEX idx_customer_city (city)
-) PARTITION BY RANGE (registration_date);  -- Partitioning for performance
-
-CREATE TABLE products (
-    product_id SERIAL PRIMARY KEY,
-    product_name VARCHAR(200) NOT NULL,
-    category VARCHAR(50) NOT NULL,
-    brand_line VARCHAR(50) NOT NULL,
-    price DECIMAL(10,2) NOT NULL CHECK (price > 0),
-    color VARCHAR(30),
-    INDEX idx_product_category (category),
-    INDEX idx_product_brand (brand_line)
-);
-
-CREATE TABLE sales (
-    sale_id SERIAL PRIMARY KEY,
-    customer_id INTEGER NOT NULL REFERENCES customers(customer_id),
-    store_id INTEGER NOT NULL REFERENCES stores(store_id),
-    sale_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    total_amount DECIMAL(10,2) NOT NULL CHECK (total_amount >= 0),
-    INDEX idx_sale_customer (customer_id),
-    INDEX idx_sale_date (sale_date),
-    INDEX idx_sale_store (store_id)
-) PARTITION BY RANGE (sale_date);
-```
-
-**Key Differences**:
-- ✅ Uses `SERIAL` (PostgreSQL-specific)
-- ✅ Includes indexes for performance
-- ✅ Includes partitioning strategy
-- ✅ Includes constraints (CHECK, NOT NULL)
-
-**Comparison Table**:
-
-| Aspect | Conceptual | Logical | Physical |
-|--------|------------|---------|----------|
-| **Focus** | Business concepts | Data structure | Database implementation |
-| **Language** | Business terms | Generic technical | DBMS-specific syntax |
-| **Data Types** | None | Generic (INT, VARCHAR) | Specific (SERIAL, TIMESTAMP) |
-| **Example** | "Customer has Name" | `customer_id: Integer` | `customer_id SERIAL PRIMARY KEY` |
 
 ---
 
