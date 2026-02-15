@@ -509,14 +509,13 @@ CREATE TABLE sale_items (
 
 **Nike Store Analytics Query (Normalized)**:
 ```sql
--- To get "Total sales by customer city", need 4 joins!
+-- To get "Total sales by customer city", need 2 joins!
 SELECT 
     c.city,
     SUM(si.quantity * si.unit_price) as total_sales
 FROM sale_items si
 JOIN sales s ON si.sale_id = s.sale_id
 JOIN customers c ON s.customer_id = c.customer_id
-JOIN products p ON si.product_id = p.product_id
 GROUP BY c.city;
 ```
 
