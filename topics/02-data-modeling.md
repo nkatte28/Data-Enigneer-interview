@@ -1080,28 +1080,61 @@ customer_id | city | effective_date | expiry_date
 
 #### SCD Type 5: Mini-Dimension (Separate Changing Attributes)
 
-**Behavior**: Separate table for frequently changing attributes.
+**Behavior**: Separate table for frequently changing attributes. The changing attributes table uses SCD Type 2 style (with time tracking), while static attributes stay in the main table.
 
 **Nike Store Example**:
 
-**Customer (Static)**:
+**Customer (Static)** - rarely changes:
 ```
 customer_id | name | birth_date
 ------------|------|------------
 101         | Sarah| 1995-05-20
 ```
 
-**Customer Demographics (Changing)**:
+**Customer Demographics (Changing)** - frequently changes, with time tracking:
 ```
-customer_id | age_group | income_range | effective_date
-------------|-----------|--------------|----------------
-101         | 25-30     | $50k-$75k    | 2020-01-01
-101         | 28-33     | $75k-$100k   | 2023-01-01
+customer_id | age_group | income_range | effective_date | expiry_date | is_current
+------------|-----------|--------------|----------------|-------------|------------
+101         | 25-30     | $50k-$75k    | 2020-01-01     | 2022-12-31  | N
+101         | 28-33     | $75k-$100k   | 2023-01-01     | NULL        | Y
+```
+
+**Key Points**:
+- ✅ Tables are related by `customer_id`
+- ✅ Changing attributes table tracks history (effective_date, expiry_date, is_current)
+- ✅ Static attributes don't need history tracking
+- ✅ SCD Type 5 = SCD Type 2 for changing attributes only
+
+**Query Example** - Get customer with current demographics:
+```sql
+SELECT 
+    c.customer_id,
+    c.name,
+    c.birth_date,
+    cd.age_group,
+    cd.income_range
+FROM customer c
+JOIN customer_demographics cd ON c.customer_id = cd.customer_id
+WHERE cd.is_current = TRUE;
+```
+
+**Query Example** - Get customer demographics at a specific date:
+```sql
+SELECT 
+    c.customer_id,
+    c.name,
+    cd.age_group,
+    cd.income_range
+FROM customer c
+JOIN customer_demographics cd ON c.customer_id = cd.customer_id
+WHERE c.customer_id = 101
+  AND '2021-06-15' BETWEEN cd.effective_date AND COALESCE(cd.expiry_date, '9999-12-31');
 ```
 
 **Use Case**: 
-- ✅ Some attributes change frequently (age, income)
-- ✅ Others change rarely (name, birth date)
+- ✅ Some attributes change frequently (age, income, customer_segment)
+- ✅ Others change rarely (name, birth date, registration_date)
+- ✅ Want to avoid Type 2 overhead for static attributes
 
 #### SCD Type 6: Hybrid (Combination)
 
