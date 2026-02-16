@@ -65,6 +65,7 @@ Databricks is a unified analytics platform built on Apache Spark, designed for d
 - **Notebooks**: Interactive coding environment (Python, Scala, SQL, R)
 - **DBFS**: Databricks File System (distributed file system)
 - **Unity Catalog**: Centralized data governance
+- **Workflows**: Orchestration for scheduling and running jobs
 
 #### 1.1 Cluster Types
 
@@ -103,6 +104,90 @@ Databricks is a unified analytics platform built on Apache Spark, designed for d
 **When to Use Each**:
 - **All-Purpose**: Development, testing, exploration
 - **Job Clusters**: Production workflows, scheduled jobs (cost-effective!)
+
+#### 1.2 DBFS (Databricks File System)
+
+**What is DBFS?**
+A distributed file system that provides a unified interface to various data sources, mounted on top of cloud storage (S3, ADLS, GCS).
+
+**Key Features**:
+- ✅ **Unified Access**: Access cloud storage like local files
+- ✅ **Mount Points**: Mount external storage (S3 buckets, ADLS containers)
+- ✅ **Persistent Storage**: Files persist across cluster restarts
+- ✅ **Path Abstraction**: Use `/dbfs/` paths instead of cloud-specific URIs
+
+**DBFS Structure**:
+```
+/dbfs/
+├── /mnt/              ← Mounted storage (S3, ADLS, etc.)
+│   ├── /raw/         ← Raw data mount
+│   └── /delta/       ← Delta tables mount
+├── /FileStore/       ← Workspace files (notebooks, libraries)
+└── /databricks/      ← System files
+```
+
+**Mounting External Storage**:
+
+**Mount S3 Bucket**:
+```python
+# Mount S3 bucket to DBFS
+dbutils.fs.mount(
+    source="s3://nike-raw-data/",
+    mount_point="/mnt/raw",
+    extra_configs={
+        "fs.s3a.access.key": "YOUR_ACCESS_KEY",
+        "fs.s3a.secret.key": "YOUR_SECRET_KEY"
+    }
+)
+
+# Now access as local path
+spark.read.format("json").load("/mnt/raw/sales/")
+# Instead of: spark.read.format("json").load("s3://nike-raw-data/sales/")
+```
+
+**Mount Azure Data Lake**:
+```python
+dbutils.fs.mount(
+    source="abfss://container@account.dfs.core.windows.net/",
+    mount_point="/mnt/azure",
+    extra_configs={
+        "fs.azure.account.key.account.dfs.core.windows.net": "YOUR_KEY"
+    }
+)
+```
+
+**Using DBFS Paths**:
+
+**Read from DBFS**:
+```python
+# Using DBFS path
+df = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+
+# Or with dbfs:// prefix
+df = spark.read.format("delta").load("dbfs:/mnt/delta/bronze/sales")
+```
+
+**Write to DBFS**:
+```python
+# Write to DBFS mount
+df.write.format("delta").save("/mnt/delta/silver/sales")
+```
+
+**DBFS vs Direct Cloud Storage**:
+
+| Aspect | DBFS | Direct Cloud Storage |
+|--------|------|---------------------|
+| **Path** | `/mnt/bucket/` | `s3://bucket/` |
+| **Mount Required** | Yes | No |
+| **Credentials** | Stored in mount | Per-request |
+| **Performance** | Slightly slower (abstraction) | Direct access |
+| **Use Case** | Frequent access, multiple users | One-time access |
+
+**Best Practices**:
+- ✅ Use DBFS mounts for frequently accessed data
+- ✅ Use direct cloud paths for one-time operations
+- ✅ Store credentials securely (use secrets)
+- ✅ Unmount unused mounts to reduce overhead
 
 **Nike Store Example - Architecture Flow**:
 ```
@@ -1477,6 +1562,56 @@ Multiple Consumers
 
 ### 7. Delta Live Tables (DLT) - Declarative Pipelines
 
+**DLT Pipeline Flow**:
+```
+┌─────────────────────────────────────────────────────────┐
+│              Raw Data Sources                            │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐            │
+│  │   S3     │  │  Kafka   │  │   DBs    │            │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘            │
+└───────┼──────────────┼──────────────┼──────────────────┘
+        │              │              │
+        └──────────────┴──────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │      DLT Pipeline             │
+        │                              │
+        │  ┌────────────────────────┐ │
+        │  │  Bronze Layer            │ │
+        │  │  @dlt.table()            │ │
+        │  │  Raw ingestion           │ │
+        │  └───────────┬────────────┘ │
+        │              ↓                │
+        │  ┌────────────────────────┐ │
+        │  │  Silver Layer        │ │
+        │  │  @dlt.expect()          │ │
+        │  │  Quality checks         │ │
+        │  │  Deduplication          │ │
+        │  └───────────┬────────────┘ │
+        │              ↓                │
+        │  ┌────────────────────────┐ │
+        │  │  Gold Layer             │ │
+        │  │  Aggregations           │ │
+        │  │  Business-ready         │ │
+        │  └───────────┬────────────┘ │
+        │              ↓                │
+        │  ┌────────────────────────┐ │
+        │  │  Monitoring             │ │
+        │  │  - Quality metrics      │ │
+        │  │  - Lineage tracking     │ │
+        │  │  - Error handling      │ │
+        │  └────────────────────────┘ │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │      Delta Lake Tables        │
+        │  ┌──────────┐  ┌──────────┐ │
+        │  │ Bronze   │  │ Silver   │ │
+        │  │ Gold     │  │          │ │
+        │  └──────────┘  └──────────┘ │
+        └──────────────────────────────┘
+```
+
 **What is DLT?**
 A declarative framework for building reliable data pipelines. You define **what** you want, DLT handles **how**.
 
@@ -1893,80 +2028,6 @@ def gold_hourly_sales():
 - ✅ Built-in monitoring
 - ✅ Data quality checks
 - ✅ Incremental processing
-
----
-
-### 10. Reading from Different Sources
-
-**What is Unity Catalog?**
-Centralized data governance for all your data assets.
-
-#### 8.1 Three-Level Namespace
-
-**Structure**:
-```
-catalog.schema.table
-```
-
-**Nike Store Example**:
-```
-nike_prod.sales.raw_sales          ← Production sales data
-nike_prod.sales.cleaned_sales      ← Cleaned sales data
-nike_prod.analytics.daily_summary ← Analytics aggregates
-nike_dev.sales.test_sales          ← Development/test data
-```
-
-**Why This Matters**:
-- ✅ Clear organization
-- ✅ Easy permissions
-- ✅ Separate prod/dev environments
-
-#### 8.2 Creating Catalogs and Schemas
-
-**Step-by-Step**:
-
-```sql
--- Step 1: Create catalog
-CREATE CATALOG IF NOT EXISTS nike_prod
-COMMENT 'Nike production data catalog';
-
--- Step 2: Create schema
-CREATE SCHEMA IF NOT EXISTS nike_prod.sales
-COMMENT 'Sales data schema';
-
--- Step 3: Create table
-CREATE TABLE nike_prod.sales.raw_sales (
-    sale_id BIGINT,
-    customer_id BIGINT,
-    amount DECIMAL(10,2),
-    sale_date TIMESTAMP
-) USING DELTA
-LOCATION '/mnt/delta/bronze/sales';
-```
-
-**Now Query**:
-```sql
-SELECT * FROM nike_prod.sales.raw_sales;
-```
-
-#### 8.3 Permissions - Who Can Access What
-
-**Grant Permissions**:
-```sql
--- Grant SELECT on table
-GRANT SELECT ON TABLE nike_prod.sales.raw_sales TO `analysts@nike.com`;
-
--- Grant ALL on schema
-GRANT ALL PRIVILEGES ON SCHEMA nike_prod.sales TO `data_engineers@nike.com`;
-
--- Grant USE CATALOG
-GRANT USE CATALOG ON CATALOG nike_prod TO `readers@nike.com`;
-```
-
-**Revoke Permissions**:
-```sql
-REVOKE SELECT ON TABLE nike_prod.sales.raw_sales FROM `analysts@nike.com`;
-```
 
 ---
 
@@ -3138,7 +3199,7 @@ def silver_sales():
 
 ---
 
-#### Q3: How Do You Handle Data Skew in Databricks?
+#### Q6: How Do You Handle Data Skew in Databricks?
 
 **Question**: "Your Spark job is slow. You suspect data skew. How do you identify and fix it?"
 
@@ -3954,6 +4015,619 @@ def silver_sales():
 ---
 
 #### Q10: Explain Change Data Feed (CDF)
+
+**Question**: "What is Change Data Feed (CDF)? Give me practical use cases."
+
+**Answer Structure**:
+
+**1. What is CDF?**
+Change Data Feed tracks all changes (INSERT, UPDATE, DELETE) to a Delta table, enabling incremental processing and CDC (Change Data Capture).
+
+**2. Enable CDF**:
+```sql
+-- Enable CDF on table
+ALTER TABLE nike_prod.sales.raw_sales 
+SET TBLPROPERTIES (delta.enableChangeDataFeed = true);
+```
+
+**3. Query Changes**:
+```python
+# Read changes since version 10
+changes = spark.read.format("delta") \
+    .option("readChangeFeed", "true") \
+    .option("startingVersion", 10) \
+    .load("/mnt/delta/sales")
+
+# Changes include: _change_type, _commit_version, _commit_timestamp
+```
+
+**4. Use Cases**:
+- ✅ **Incremental Processing**: Only process changed rows
+- ✅ **CDC Pipelines**: Replicate changes to downstream systems
+- ✅ **Audit Trail**: Track all data changes
+- ✅ **Real-time Sync**: Sync changes to data warehouse
+
+**5. Real-World Example**:
+```python
+# Scenario: Sync sales changes to Snowflake
+changes = spark.read.format("delta") \
+    .option("readChangeFeed", "true") \
+    .option("startingVersion", last_synced_version) \
+    .load("/mnt/delta/sales")
+
+# Filter only updates and inserts
+new_changes = changes.filter(
+    (col("_change_type") == "insert") | 
+    (col("_change_type") == "update_postimage")
+)
+
+# Write to Snowflake
+new_changes.write.format("snowflake").save(...)
+```
+
+**Key Points**:
+- ✅ Tracks all changes (INSERT, UPDATE, DELETE)
+- ✅ Enables incremental processing
+- ✅ Perfect for CDC pipelines
+- ✅ Must be enabled on table
+
+---
+
+#### Q11: How Do You Handle Schema Evolution in Delta Lake?
+
+**Question**: "Your Delta table schema needs to change. How do you handle schema evolution safely in production?"
+
+**Answer Structure**:
+
+**1. What is Schema Evolution?**
+Adding, removing, or modifying columns in a Delta table without breaking existing queries.
+
+**2. Enable Schema Evolution**:
+```python
+# Option 1: Enable mergeSchema
+df.write.format("delta") \
+    .mode("append") \
+    .option("mergeSchema", "true") \
+    .save("/mnt/delta/sales")
+
+# Option 2: Set table property
+ALTER TABLE sales 
+SET TBLPROPERTIES ('delta.autoOptimize.optimizeWrite' = 'true');
+```
+
+**3. Common Scenarios**:
+
+**Scenario 1: Add New Column**:
+```python
+# New data has 'discount_code' column
+new_sales = spark.createDataFrame([
+    ("SALE-001", 101, 150.00, "SAVE10")
+], ["sale_id", "customer_id", "amount", "discount_code"])
+
+# Append with schema evolution
+new_sales.write.format("delta") \
+    .mode("append") \
+    .option("mergeSchema", "true") \
+    .save("/mnt/delta/sales")
+
+# Result: Old rows have discount_code = NULL, new rows have values
+```
+
+**Scenario 2: Change Column Type**:
+```python
+# Change amount from INT to DECIMAL
+# Step 1: Read existing data
+df = spark.read.format("delta").load("/mnt/delta/sales")
+
+# Step 2: Cast to new type
+df = df.withColumn("amount", col("amount").cast("decimal(10,2)"))
+
+# Step 3: Overwrite with new schema
+df.write.format("delta") \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .save("/mnt/delta/sales")
+```
+
+**Scenario 3: Rename Column**:
+```python
+# Rename customer_id to client_id
+df = spark.read.format("delta").load("/mnt/delta/sales") \
+    .withColumnRenamed("customer_id", "client_id")
+
+df.write.format("delta") \
+    .mode("overwrite") \
+    .option("overwriteSchema", "true") \
+    .save("/mnt/delta/sales")
+```
+
+**4. Best Practices**:
+- ✅ Always test schema changes on sample data first
+- ✅ Use `mergeSchema` for additive changes (new columns)
+- ✅ Use `overwriteSchema` carefully (can break queries)
+- ✅ Make new columns nullable when possible
+- ✅ Document schema changes
+- ✅ Update downstream consumers before deploying
+
+**5. Production Strategy**:
+```python
+# Step 1: Test on dev environment
+# Step 2: Update downstream code to handle new schema
+# Step 3: Deploy schema change during low-traffic window
+# Step 4: Monitor for errors
+# Step 5: Rollback if needed (using time travel)
+```
+
+**Key Points**:
+- ✅ `mergeSchema`: Additive changes (safe)
+- ✅ `overwriteSchema`: Destructive changes (risky)
+- ✅ Test first, deploy carefully
+- ✅ Update downstream consumers
+
+---
+
+#### Q12: Explain Delta Lake Partitioning Strategy
+
+**Question**: "How do you decide on partitioning strategy for a Delta table? Walk me through your approach."
+
+**Answer Structure**:
+
+**1. What is Partitioning?**
+Organizing data into separate directories based on column values, enabling partition pruning (only read relevant partitions).
+
+**2. Partitioning Decision Framework**:
+
+**Consider Partitioning When**:
+- ✅ Table size > 1TB
+- ✅ Queries filter by specific columns (date, region, etc.)
+- ✅ Data is naturally segmented (time-based, geographic)
+- ✅ Need to delete old data efficiently
+
+**Don't Partition When**:
+- ❌ Table size < 100GB (overhead not worth it)
+- ❌ High cardinality columns (customer_id, transaction_id)
+- ❌ Frequently changing partition columns
+- ❌ Too many partitions (> 10,000)
+
+**3. Common Partitioning Strategies**:
+
+**Strategy 1: Date Partitioning** (Most Common):
+```python
+# Partition by date (year/month/day)
+sales_df.write.format("delta") \
+    .partitionBy("year", "month", "day") \
+    .save("/mnt/delta/sales")
+
+# Query benefits:
+# SELECT * FROM sales WHERE year=2024 AND month=1 AND day=15
+# → Only reads partition year=2024/month=1/day=15
+```
+
+**Strategy 2: Geographic Partitioning**:
+```python
+# Partition by region
+sales_df.write.format("delta") \
+    .partitionBy("region", "country") \
+    .save("/mnt/delta/sales")
+
+# Query: SELECT * FROM sales WHERE region='US' AND country='USA'
+```
+
+**Strategy 3: Multi-Level Partitioning**:
+```python
+# Partition by date + region
+sales_df.write.format("delta") \
+    .partitionBy("year", "month", "region") \
+    .save("/mnt/delta/sales")
+```
+
+**4. Partitioning Best Practices**:
+
+**Optimal Partition Size**:
+- ✅ Target: 1-10GB per partition
+- ✅ Too small (< 100MB): Too many files, overhead
+- ✅ Too large (> 100GB): Slower queries, less parallelism
+
+**Partition Column Selection**:
+```python
+# Good partition columns:
+# - Date columns (sale_date, created_date)
+# - Low-medium cardinality (region, status)
+# - Frequently filtered in queries
+
+# Bad partition columns:
+# - High cardinality (customer_id, transaction_id)
+# - Frequently changing (last_updated)
+# - Not used in WHERE clauses
+```
+
+**5. Real-World Example**:
+
+**Scenario**: Sales table, 1TB, queries filter by date and region.
+
+**Analysis**:
+- Table size: 1TB
+- Query pattern: `WHERE sale_date = '2024-01-15' AND region = 'US'`
+- Data growth: 100GB/month
+
+**Partitioning Strategy**:
+```python
+# Partition by year, month, region
+sales_df.write.format("delta") \
+    .partitionBy("year", "month", "region") \
+    .save("/mnt/delta/sales")
+
+# Expected partitions:
+# - 12 months × 5 regions = 60 partitions/year
+# - ~17GB per partition (1TB / 60) ✅ Good size!
+```
+
+**6. Monitoring Partitioning**:
+```python
+# Check partition sizes
+spark.sql("""
+    SELECT 
+        year, month, region,
+        COUNT(*) as file_count,
+        SUM(size_bytes) / 1024 / 1024 / 1024 as size_gb
+    FROM (
+        SELECT 
+            year, month, region,
+            input_file_name() as file_path,
+            length(input_file_name()) as size_bytes
+        FROM sales
+    )
+    GROUP BY year, month, region
+    ORDER BY size_gb DESC
+""").show()
+```
+
+**Key Points**:
+- ✅ Partition by frequently filtered columns
+- ✅ Target 1-10GB per partition
+- ✅ Avoid high cardinality columns
+- ✅ Monitor partition sizes
+
+---
+
+#### Q13: How Do You Optimize Delta Table Performance?
+
+**Question**: "Your Delta queries are slow. Walk me through your optimization strategy."
+
+**Answer Structure**:
+
+**1. Identify Performance Issues**:
+
+**Check File Count**:
+```python
+# Too many small files = slow
+spark.sql("DESCRIBE DETAIL delta.`/mnt/delta/sales`").show()
+# Look for: numFiles (should be < 100 per partition)
+```
+
+**Check Query Plan**:
+```python
+# See what Spark is doing
+spark.sql("EXPLAIN SELECT * FROM sales WHERE date = '2024-01-15'").show(truncate=False)
+
+# Look for:
+# - Full table scans (bad!)
+# - Partition pruning (good!)
+# - File count (too many = slow)
+```
+
+**2. Optimization Strategies**:
+
+**Strategy 1: OPTIMIZE (Compact Files)**:
+```sql
+-- Compact small files into larger ones
+OPTIMIZE delta.`/mnt/delta/sales`;
+
+-- With Z-ORDER (cluster data)
+OPTIMIZE delta.`/mnt/delta/sales`
+ZORDER BY (customer_id, sale_date);
+```
+
+**Strategy 2: Liquid Clustering** (Latest!):
+```sql
+-- Enable liquid clustering (better than Z-ORDER)
+ALTER TABLE sales CLUSTER BY (customer_id, sale_date);
+
+-- Automatic optimization, no manual OPTIMIZE needed!
+```
+
+**Strategy 3: Partitioning**:
+```python
+# Partition by frequently filtered columns
+sales_df.write.format("delta") \
+    .partitionBy("year", "month", "day") \
+    .save("/mnt/delta/sales")
+```
+
+**Strategy 4: VACUUM (Remove Old Files)**:
+```sql
+-- Remove files older than 7 days (not needed for time travel)
+VACUUM delta.`/mnt/delta/sales` RETAIN 7 DAYS;
+
+-- Reduces file count, improves performance
+```
+
+**3. Optimization Checklist**:
+
+**File-Level**:
+- ✅ Run OPTIMIZE regularly (daily/weekly)
+- ✅ Use Z-ORDER or Liquid Clustering
+- ✅ VACUUM old files
+- ✅ Target: < 100 files per partition
+
+**Query-Level**:
+- ✅ Use partition columns in WHERE clauses
+- ✅ Use Z-ORDER columns in filters
+- ✅ Limit columns selected (avoid SELECT *)
+- ✅ Use appropriate cluster sizes
+
+**Table-Level**:
+- ✅ Right partitioning strategy
+- ✅ Enable Liquid Clustering
+- ✅ Set table properties (auto-optimize)
+
+**4. Real-World Optimization**:
+
+**Before**:
+```python
+# 10,000 small files (1MB each)
+# Query time: 5 minutes
+spark.sql("SELECT * FROM sales WHERE date = '2024-01-15'")
+```
+
+**After OPTIMIZE**:
+```sql
+OPTIMIZE delta.`/mnt/delta/sales`
+ZORDER BY (customer_id, date);
+```
+
+**Result**:
+```python
+# 100 large files (100MB each)
+# Query time: 30 seconds ✅ 10x faster!
+```
+
+**5. Monitoring**:
+```python
+# Check optimization status
+spark.sql("DESCRIBE DETAIL delta.`/mnt/delta/sales`").show()
+
+# Monitor query performance
+# - Track query execution time
+# - Monitor file count
+# - Check partition pruning
+```
+
+**Key Points**:
+- ✅ OPTIMIZE: Compact files
+- ✅ Z-ORDER/Liquid Clustering: Organize data
+- ✅ Partitioning: Enable pruning
+- ✅ VACUUM: Remove old files
+- ✅ Monitor: Track performance metrics
+
+---
+
+#### Q14: How Do You Handle Delta Table Corruption?
+
+**Question**: "Your Delta table is corrupted. How do you diagnose and fix it?"
+
+**Answer Structure**:
+
+**1. Symptoms of Corruption**:
+- ❌ Queries fail with "Delta table not found" or "Invalid log file"
+- ❌ Time travel queries fail
+- ❌ OPTIMIZE fails
+- ❌ Transaction log errors
+
+**2. Diagnose Corruption**:
+```python
+# Step 1: Check table status
+spark.sql("DESCRIBE DETAIL delta.`/mnt/delta/sales`").show()
+
+# Step 2: Check transaction log
+spark.sql("DESCRIBE HISTORY delta.`/mnt/delta/sales`").show()
+
+# Step 3: Try to read table
+try:
+    df = spark.read.format("delta").load("/mnt/delta/sales")
+    df.count()
+except Exception as e:
+    print(f"Corruption detected: {e}")
+```
+
+**3. Fix Strategies**:
+
+**Strategy 1: REPAIR TABLE** (First Try):
+```sql
+-- Repair table (recreates transaction log)
+REPAIR TABLE delta.`/mnt/delta/sales`;
+```
+
+**Strategy 2: Restore from Previous Version**:
+```sql
+-- Restore to last known good version
+RESTORE TABLE delta.`/mnt/delta/sales` TO VERSION AS OF 10;
+```
+
+**Strategy 3: Recreate from Source**:
+```python
+# If repair fails, recreate from source
+source_data = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+
+# Recreate table
+source_data.write.format("delta") \
+    .mode("overwrite") \
+    .save("/mnt/delta/silver/sales")
+```
+
+**Strategy 4: Manual Transaction Log Fix**:
+```python
+# Only if you know what you're doing!
+# Step 1: Identify last good transaction log file
+# Step 2: Remove corrupted log files
+# Step 3: Recreate log from data files
+
+# This is advanced - usually not needed
+```
+
+**4. Prevention**:
+- ✅ Regular backups (copy `_delta_log/` directory)
+- ✅ Test OPTIMIZE on sample data first
+- ✅ Monitor table health
+- ✅ Use time travel for rollback
+- ✅ Avoid manual file deletion
+
+**5. Real-World Example**:
+
+**Scenario**: OPTIMIZE job failed halfway, corrupted transaction log.
+
+**Step 1: Diagnose**:
+```python
+# Check if table is readable
+df = spark.read.format("delta").load("/mnt/delta/sales")
+# Error: "Invalid log file"
+```
+
+**Step 2: Repair**:
+```sql
+REPAIR TABLE delta.`/mnt/delta/sales`;
+```
+
+**Step 3: Verify**:
+```python
+# Check if fixed
+df = spark.read.format("delta").load("/mnt/delta/sales")
+df.count()  # Should work now!
+```
+
+**If Repair Fails**:
+```sql
+-- Restore to version before corruption
+RESTORE TABLE delta.`/mnt/delta/sales` TO VERSION AS OF 15;
+```
+
+**Key Points**:
+- ✅ REPAIR TABLE: First attempt
+- ✅ RESTORE: If repair fails
+- ✅ Recreate: Last resort
+- ✅ Prevention: Regular backups
+
+---
+
+#### Q15: Explain Delta Lake Merge Operation
+
+**Question**: "Explain the Delta MERGE operation. When and how would you use it?"
+
+**Answer Structure**:
+
+**1. What is MERGE?**
+Upsert operation: Update existing rows if they match, insert new rows if they don't.
+
+**2. MERGE Syntax**:
+```sql
+MERGE INTO target_table AS target
+USING source_table AS source
+ON target.id = source.id
+WHEN MATCHED THEN
+    UPDATE SET target.amount = source.amount
+WHEN NOT MATCHED THEN
+    INSERT (id, amount, date) VALUES (source.id, source.amount, source.date)
+```
+
+**3. Common Use Cases**:
+
+**Use Case 1: Upsert from Source**:
+```python
+# Scenario: Update customer records, insert new ones
+from delta.tables import DeltaTable
+
+target = DeltaTable.forPath(spark, "/mnt/delta/customers")
+source = spark.read.format("delta").load("/mnt/delta/bronze/customers")
+
+target.alias("target").merge(
+    source.alias("source"),
+    "target.customer_id = source.customer_id"
+).whenMatchedUpdateAll() \
+.whenNotMatchedInsertAll() \
+.execute()
+```
+
+**Use Case 2: SCD Type 1 (Overwrite)**:
+```python
+# Update existing, insert new (no history)
+target.alias("target").merge(
+    source.alias("source"),
+    "target.customer_id = source.customer_id"
+).whenMatchedUpdate(
+    set={"name": "source.name", "city": "source.city"}
+).whenNotMatchedInsertAll() \
+.execute()
+```
+
+**Use Case 3: SCD Type 2 (History)**:
+```python
+# Mark old records as expired, insert new
+target.alias("target").merge(
+    source.alias("source"),
+    "target.customer_id = source.customer_id AND target.is_current = true"
+).whenMatchedUpdate(
+    set={
+        "is_current": "false",
+        "expiry_date": "current_date()"
+    }
+).whenNotMatchedInsert(
+    values={
+        "customer_id": "source.customer_id",
+        "name": "source.name",
+        "is_current": "true",
+        "effective_date": "current_date()"
+    }
+).execute()
+```
+
+**4. MERGE Performance**:
+- ✅ More efficient than DELETE + INSERT
+- ✅ Atomic operation (all-or-nothing)
+- ✅ Can use Z-ORDER/Liquid Clustering for faster matches
+
+**5. Best Practices**:
+- ✅ Use MERGE for upserts (not DELETE + INSERT)
+- ✅ Ensure join keys are unique in source
+- ✅ Use partition columns in merge condition when possible
+- ✅ Monitor merge performance (can be slow for large tables)
+
+**6. Real-World Example**:
+
+**Scenario**: Daily sync of customer data from source system.
+
+```python
+# Daily MERGE job
+target = DeltaTable.forPath(spark, "/mnt/delta/customers")
+source = spark.read.format("delta").load("/mnt/delta/bronze/customers")
+
+target.alias("target").merge(
+    source.alias("source"),
+    "target.customer_id = source.customer_id"
+).whenMatchedUpdateAll() \
+.whenNotMatchedInsertAll() \
+.execute()
+
+# Result:
+# - Existing customers: Updated
+# - New customers: Inserted
+# - One atomic operation ✅
+```
+
+**Key Points**:
+- ✅ MERGE: Upsert operation (update + insert)
+- ✅ Atomic: All-or-nothing
+- ✅ Efficient: Better than DELETE + INSERT
+- ✅ Use for: SCD, daily syncs, upserts
 
 **Question**: "What is Change Data Feed? Give me a practical use case."
 
