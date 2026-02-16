@@ -19,12 +19,13 @@
 
 ### Part 4: Integration & Optimization
 10. [Reading from Different Sources](#10-reading-from-different-sources)
-11. [Spark Job Optimization](#11-spark-job-optimization)
-12. [Latest Optimizations - Predictive Optimization](#12-latest-optimizations---predictive-optimization)
+11. [Cluster Sizing & Scaling for Different Data Volumes](#11-cluster-sizing--scaling-for-different-data-volumes)
+12. [Spark Job Optimization](#12-spark-job-optimization)
+13. [Latest Optimizations - Predictive Optimization](#13-latest-optimizations---predictive-optimization)
 
 ### Part 5: Governance & Cost
-13. [Data Governance & PII Protection](#13-data-governance--pii-protection)
-14. [Cost Optimization](#14-cost-optimization)
+14. [Data Governance & PII Protection](#14-data-governance--pii-protection)
+15. [Cost Optimization](#15-cost-optimization)
 
 ### Part 6: Interview & Practical
 16. [Interview Questions & Answers](#16-databricks-interview-questions--answers)
@@ -1969,7 +1970,7 @@ REVOKE SELECT ON TABLE nike_prod.sales.raw_sales FROM `analysts@nike.com`;
 
 ---
 
-### 11. Spark Job Optimization
+### 10. Reading from Different Sources
 
 #### 10.1 Snowflake
 
@@ -2062,7 +2063,7 @@ mongo_df = spark.read \
 
 ---
 
-### 12. Latest Optimizations - Predictive Optimization
+### 13. Latest Optimizations - Predictive Optimization
 
 **What is Predictive Optimization?**
 AI-powered feature that automatically optimizes your Delta tables based on query patterns. No manual tuning needed!
@@ -2115,9 +2116,509 @@ SET TBLPROPERTIES (
 
 ---
 
-### 11. Spark Job Optimization
+### 11. Cluster Sizing & Scaling for Different Data Volumes
 
-#### 11.1 Performance Tuning - Key Configs
+**Why This Matters**: Understanding how to size clusters based on data volume is critical for both performance and cost. This section provides concrete numbers and calculations.
+
+---
+
+#### 11.1 Node Types & Specifications
+
+**Common Databricks Node Types**:
+
+| Node Type | vCPUs | Memory | Disk (NVMe) | Use Case |
+|-----------|-------|--------|-------------|----------|
+| **i3.xlarge** | 4 | 30.5 GB | 950 GB | Small workloads, dev/test |
+| **i3.2xlarge** | 8 | 61 GB | 1.9 TB | Medium workloads |
+| **i3.4xlarge** | 16 | 122 GB | 3.8 TB | Large workloads |
+| **i3.8xlarge** | 32 | 244 GB | 7.6 TB | Very large workloads |
+| **m5d.large** | 2 | 8 GB | 75 GB | Light workloads |
+| **m5d.xlarge** | 4 | 16 GB | 150 GB | Small-medium workloads |
+| **r5d.large** | 2 | 16 GB | 75 GB | Memory-intensive |
+
+**Key Considerations**:
+- **i3 instances**: Optimized for I/O (NVMe SSD), best for data processing
+- **m5d instances**: Balanced CPU/memory, good for general workloads
+- **r5d instances**: Memory-optimized, good for large joins/aggregations
+
+---
+
+#### 11.2 Calculating Cluster Size Based on Data Volume
+
+**Formula for Batch Processing**:
+```
+Required Workers = (Data Volume per Hour) / (Processing Throughput per Worker per Hour)
+```
+
+**Processing Throughput Guidelines** (per i3.xlarge worker):
+- **Read**: ~500-1000 MB/s per worker
+- **Transform**: ~200-500 MB/s per worker (depends on complexity)
+- **Write**: ~300-800 MB/s per worker
+
+**Example Calculations**:
+
+**Scenario 1: 100GB/Day Pipeline**
+
+**Given**:
+- Data volume: 100GB/day = 4.2GB/hour = 70MB/minute
+- Processing window: 1 hour (batch)
+- Node type: i3.xlarge (4 vCPUs, 30.5GB RAM)
+
+**Calculation**:
+```
+Hourly data: 4.2 GB
+Throughput per worker: ~500 MB/s = ~1.8 TB/hour = 1800 GB/hour
+Required workers: 4.2 GB / 1800 GB = 0.002 workers
+
+But wait! We need to account for:
+- Overhead: 20-30%
+- Safety margin: 2x
+- Minimum viable: 2 workers
+
+Recommended: 2 workers (i3.xlarge)
+Total: 8 vCPUs, 61 GB RAM, 1.9 TB disk
+```
+
+**Cluster Configuration**:
+```python
+cluster_config = {
+    "spark_version": "13.3.x-scala2.12",
+    "node_type_id": "i3.xlarge",
+    "num_workers": 2,  # Handles 100GB/day easily
+    "autotermination_minutes": 30
+}
+```
+
+**Cost Estimate**: ~$0.30/hour × 2 workers = $0.60/hour = ~$14/day (if running 24/7)
+
+---
+
+**Scenario 2: 1TB/Day Pipeline**
+
+**Given**:
+- Data volume: 1TB/day = 42GB/hour = 700MB/minute
+- Processing window: 1 hour (batch)
+- Node type: i3.2xlarge (8 vCPUs, 61GB RAM)
+
+**Calculation**:
+```
+Hourly data: 42 GB
+Throughput per worker: ~500 MB/s = ~1.8 TB/hour
+Required workers: 42 GB / 1800 GB = 0.023 workers
+
+But with overhead and safety:
+- Overhead: 30%
+- Safety margin: 3x (for peak loads)
+- Recommended: 8-10 workers (i3.2xlarge)
+
+Recommended: 8 workers (i3.2xlarge)
+Total: 64 vCPUs, 488 GB RAM, 15.2 TB disk
+```
+
+**Cluster Configuration**:
+```python
+cluster_config = {
+    "spark_version": "13.3.x-scala2.12",
+    "node_type_id": "i3.2xlarge",
+    "autoscale": {
+        "min_workers": 4,      # Baseline
+        "max_workers": 12,     # Peak load
+        "target_workers": 8    # Normal load
+    }
+}
+```
+
+**Cost Estimate**: ~$0.60/hour × 8 workers = $4.80/hour = ~$115/day (if running 24/7)
+
+---
+
+**Scenario 3: 10TB/Day Pipeline**
+
+**Given**:
+- Data volume: 10TB/day = 420GB/hour = 7GB/minute
+- Processing window: 1 hour (batch)
+- Node type: i3.4xlarge (16 vCPUs, 122GB RAM)
+
+**Calculation**:
+```
+Hourly data: 420 GB
+Throughput per worker: ~500 MB/s = ~1.8 TB/hour
+Required workers: 420 GB / 1800 GB = 0.23 workers
+
+With overhead and safety:
+- Recommended: 20-30 workers (i3.4xlarge)
+
+Recommended: 25 workers (i3.4xlarge)
+Total: 400 vCPUs, 3.05 TB RAM, 95 TB disk
+```
+
+**Cluster Configuration**:
+```python
+cluster_config = {
+    "spark_version": "13.3.x-scala2.12",
+    "node_type_id": "i3.4xlarge",
+    "autoscale": {
+        "min_workers": 15,     # Baseline
+        "max_workers": 40,     # Peak load
+        "target_workers": 25    # Normal load
+    }
+}
+```
+
+**Cost Estimate**: ~$1.20/hour × 25 workers = $30/hour = ~$720/day (if running 24/7)
+
+---
+
+#### 11.3 Real-World Scaling Examples
+
+**Example 1: Small E-commerce (100GB/Day)**
+
+**Data Characteristics**:
+- Sales transactions: 1M records/day
+- Average record size: 100 bytes
+- Total: ~100GB/day
+
+**Cluster Sizing**:
+```python
+# Development/Testing
+dev_cluster = {
+    "node_type_id": "i3.xlarge",
+    "num_workers": 1  # $0.30/hour
+}
+
+# Production
+prod_cluster = {
+    "node_type_id": "i3.xlarge",
+    "num_workers": 2,  # $0.60/hour
+    "autotermination_minutes": 30
+}
+```
+
+**Processing Time**: ~5-10 minutes for 100GB batch
+
+---
+
+**Example 2: Medium Retail (1TB/Day)**
+
+**Data Characteristics**:
+- Sales transactions: 10M records/day
+- Customer data: 5M records/day
+- Product catalog: 1M records/day
+- Total: ~1TB/day
+
+**Cluster Sizing**:
+```python
+# Bronze Layer (Ingestion)
+bronze_cluster = {
+    "node_type_id": "i3.2xlarge",
+    "autoscale": {
+        "min_workers": 4,
+        "max_workers": 10,
+        "target_workers": 6
+    }
+}
+
+# Silver Layer (Transformation)
+silver_cluster = {
+    "node_type_id": "i3.2xlarge",
+    "autoscale": {
+        "min_workers": 4,
+        "max_workers": 12,
+        "target_workers": 8
+    }
+}
+
+# Gold Layer (Aggregation)
+gold_cluster = {
+    "node_type_id": "i3.2xlarge",
+    "autoscale": {
+        "min_workers": 2,
+        "max_workers": 8,
+        "target_workers": 4
+    }
+}
+```
+
+**Processing Time**: 
+- Bronze: ~15-20 minutes
+- Silver: ~20-30 minutes
+- Gold: ~10-15 minutes
+- **Total**: ~45-65 minutes
+
+**Daily Cost**: ~$50-80/day (job clusters, not 24/7)
+
+---
+
+**Example 3: Large Enterprise (10TB/Day)**
+
+**Data Characteristics**:
+- Multiple data sources
+- Complex transformations
+- Real-time + batch processing
+- Total: ~10TB/day
+
+**Cluster Sizing**:
+```python
+# Batch Processing
+batch_cluster = {
+    "node_type_id": "i3.4xlarge",
+    "autoscale": {
+        "min_workers": 20,
+        "max_workers": 50,
+        "target_workers": 30
+    }
+}
+
+# Streaming Processing
+streaming_cluster = {
+    "node_type_id": "i3.2xlarge",
+    "autoscale": {
+        "min_workers": 8,
+        "max_workers": 20,
+        "target_workers": 12
+    }
+}
+```
+
+**Processing Time**: 
+- Batch: ~1-2 hours
+- Streaming: Continuous (real-time)
+
+**Daily Cost**: ~$500-1000/day
+
+---
+
+#### 11.4 Scaling Strategies
+
+**Strategy 1: Horizontal Scaling (Scale Out)**
+
+**When to Use**: Most common, preferred approach
+
+**How It Works**:
+```
+Small Load: 2 workers
+    ↓
+Medium Load: 8 workers (add 6 workers)
+    ↓
+Large Load: 20 workers (add 12 workers)
+```
+
+**Benefits**:
+- ✅ No single point of failure
+- ✅ Better fault tolerance
+- ✅ Linear scaling (2x workers ≈ 2x throughput)
+
+**Example**:
+```python
+# Start small, scale up
+cluster_config = {
+    "autoscale": {
+        "min_workers": 2,      # Start here
+        "max_workers": 20,     # Scale up to here
+        "target_workers": 8    # Normal operation
+    }
+}
+```
+
+---
+
+**Strategy 2: Vertical Scaling (Scale Up)**
+
+**When to Use**: When horizontal scaling hits limits
+
+**How It Works**:
+```
+i3.xlarge (4 vCPU, 30GB RAM)
+    ↓
+i3.2xlarge (8 vCPU, 61GB RAM)  # 2x resources
+    ↓
+i3.4xlarge (16 vCPU, 122GB RAM)  # 4x resources
+```
+
+**Benefits**:
+- ✅ Simpler (fewer nodes to manage)
+- ✅ Better for memory-intensive workloads
+- ✅ Lower network overhead
+
+**Drawbacks**:
+- ❌ Single point of failure
+- ❌ Limited by largest node size
+- ❌ More expensive per unit
+
+**Example**:
+```python
+# For memory-intensive joins
+cluster_config = {
+    "node_type_id": "r5d.4xlarge",  # Memory-optimized
+    "num_workers": 4  # Fewer, but larger nodes
+}
+```
+
+---
+
+**Strategy 3: Hybrid Scaling**
+
+**When to Use**: Best of both worlds
+
+**How It Works**:
+```
+Use larger nodes + auto-scaling
+i3.2xlarge nodes with 4-12 workers
+```
+
+**Example**:
+```python
+cluster_config = {
+    "node_type_id": "i3.2xlarge",  # Larger nodes
+    "autoscale": {
+        "min_workers": 4,
+        "max_workers": 12,
+        "target_workers": 8
+    }
+}
+```
+
+---
+
+#### 11.5 Performance Benchmarks
+
+**Real-World Throughput** (i3.xlarge worker):
+
+| Operation | Throughput | Notes |
+|-----------|------------|-------|
+| **Read Parquet** | 800-1200 MB/s | Optimized format |
+| **Read JSON** | 200-400 MB/s | Slower parsing |
+| **Read CSV** | 150-300 MB/s | Slowest |
+| **Write Delta** | 500-800 MB/s | With compression |
+| **Simple Transform** | 400-600 MB/s | Filter, select |
+| **Complex Transform** | 100-300 MB/s | Joins, aggregations |
+| **Join Operations** | 50-200 MB/s | Depends on size |
+
+**Example Calculation**:
+
+**Scenario**: Process 1TB of Parquet data with simple transformations
+
+```
+Data: 1TB = 1024 GB
+Read throughput: 1000 MB/s per worker = 3.6 TB/hour = 3600 GB/hour
+Workers needed: 1024 GB / 3600 GB = 0.28 workers
+
+With overhead (30%) and safety (2x):
+Required: 0.28 × 1.3 × 2 = 0.73 workers ≈ 1 worker
+
+But for reliability: Use 2-4 workers
+```
+
+---
+
+#### 11.6 Cost Optimization at Scale
+
+**Cost Factors**:
+1. **Cluster Size**: More workers = higher cost
+2. **Node Type**: Larger nodes = higher cost per hour
+3. **Runtime**: Longer jobs = higher cost
+4. **Idle Time**: Clusters running idle = wasted cost
+
+**Cost Optimization Strategies**:
+
+**Strategy 1: Right-Size Clusters**
+```python
+# Bad: Over-provisioned
+cluster = {"num_workers": 20}  # For 100GB/day (overkill!)
+
+# Good: Right-sized
+cluster = {"num_workers": 2}  # For 100GB/day (perfect!)
+```
+
+**Strategy 2: Use Job Clusters**
+```python
+# Bad: All-purpose cluster running 24/7
+# Cost: $0.30/hour × 24 hours = $7.20/day
+
+# Good: Job cluster (runs 1 hour/day)
+# Cost: $0.30/hour × 1 hour = $0.30/day
+# Savings: 96%!
+```
+
+**Strategy 3: Auto-Scaling**
+```python
+# Bad: Fixed size (always max)
+cluster = {"num_workers": 20}  # Always $6/hour
+
+# Good: Auto-scaling
+cluster = {
+    "autoscale": {
+        "min_workers": 2,   # $0.60/hour (idle)
+        "max_workers": 20,  # $6/hour (peak)
+        "target_workers": 8 # $2.40/hour (normal)
+    }
+}
+# Average cost: ~$2/hour (67% savings!)
+```
+
+**Strategy 4: Spot Instances** (for non-critical jobs)
+```python
+# Regular: $0.30/hour
+# Spot: $0.09/hour (70% savings!)
+
+cluster_config = {
+    "node_type_id": "i3.xlarge",
+    "aws_attributes": {
+        "availability": "SPOT",
+        "spot_bid_price_percent": 100
+    }
+}
+```
+
+---
+
+#### 11.7 Monitoring & Tuning
+
+**Key Metrics to Monitor**:
+
+1. **Cluster Utilization**:
+   - CPU usage: Should be 60-80% (not 100%, not 10%)
+   - Memory usage: Should be 70-85%
+   - Disk I/O: Monitor read/write throughput
+
+2. **Job Performance**:
+   - Processing time per GB
+   - Tasks per second
+   - Shuffle read/write
+
+3. **Cost Metrics**:
+   - DBU (Databricks Units) per job
+   - Cost per GB processed
+   - Idle time percentage
+
+**Tuning Based on Metrics**:
+
+**If CPU < 50%**:
+```python
+# Downsize cluster
+cluster = {"num_workers": 4}  # Was 8
+```
+
+**If CPU > 90%**:
+```python
+# Upsize cluster
+cluster = {"num_workers": 12}  # Was 8
+```
+
+**If Memory > 90%**:
+```python
+# Use larger nodes or more workers
+cluster = {
+    "node_type_id": "i3.2xlarge",  # More memory
+    "num_workers": 8
+}
+```
+
+---
+
+### 12. Spark Job Optimization
+
+#### 12.1 Performance Tuning - Key Configs
 
 **What We're Doing**: Make Spark jobs run faster.
 
@@ -2140,7 +2641,7 @@ spark = SparkSession.builder \
 - `spark.sql.files.maxPartitionBytes`: Max bytes per partition (128MB default)
 - `spark.serializer`: Use Kryo for better performance
 
-#### 11.2 Auto Scaling - Dynamic Cluster Sizing
+#### 12.2 Auto Scaling - Dynamic Cluster Sizing
 
 **What is Auto Scaling?**
 Automatically add or remove cluster nodes based on workload demand.
@@ -2185,7 +2686,7 @@ Load Decreases → Scale Down
 - ✅ Monitor scaling behavior
 - ✅ Use with autotermination
 
-#### 11.3 Handling Data Skew
+#### 12.3 Handling Data Skew
 
 **What is Skew?**
 Uneven data distribution across partitions.
@@ -2232,7 +2733,7 @@ spark.conf.set("spark.sql.adaptive.skewJoin.enabled", "true")
 spark.conf.set("spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes", "256MB")
 ```
 
-#### 11.4 Memory Optimization
+#### 12.4 Memory Optimization
 
 **Memory Configuration**:
 ```python
@@ -2262,7 +2763,7 @@ revenue_by_customer = sales_with_customer.groupBy("customer_name").sum("amount")
 customer_dim.unpersist()
 ```
 
-#### 11.5 Processing Too Much Data - Strategies
+#### 12.5 Processing Too Much Data - Strategies
 
 **Problem**: Table has 1 billion rows, but you only need last 30 days.
 
@@ -2289,50 +2790,11 @@ new_sales = spark.read.format("delta") \
 
 ---
 
-### 13. Data Governance & PII Protection
+### 14. Data Governance & PII Protection
 
-#### 13.1 Column-Level Security
+#### 14.1 Column-Level Security
 
 **What We're Doing**: Mask PII data (emails, phone numbers).
-
-**Provider Side (AWS)**:
-```python
-# Create share
-spark.sql("CREATE SHARE nike_sales_share")
-
-# Add table to share
-spark.sql("ALTER SHARE nike_sales_share ADD TABLE nike_prod.sales.raw_sales")
-
-# Create recipient
-spark.sql("CREATE RECIPIENT azure_consumer")
-
-# Grant access
-spark.sql("GRANT SELECT ON SHARE nike_sales_share TO RECIPIENT azure_consumer")
-```
-
-**Consumer Side (Azure)**:
-```python
-# Create catalog from share
-spark.sql("""
-    CREATE CATALOG azure_nike
-    USING DELTASHARING
-    LOCATION 'https://sharing-server.com/delta-sharing/'
-    WITH CREDENTIAL (
-        'bearerToken' = 'token-here'
-    )
-""")
-
-# Query shared data
-shared_sales = spark.table("azure_nike.nike_sales_share.raw_sales")
-```
-
----
-
-### 14. Cost Optimization
-
-#### 14.1 Cluster Optimization
-
-**Right-Size Clusters**:
 
 **Sample Customer Data**:
 ```
@@ -2380,7 +2842,7 @@ DENY SELECT(email, phone, ssn) ON TABLE nike_prod.sales.customers
 TO `analysts@nike.com`;
 ```
 
-#### 13.2 Row-Level Security
+#### 14.2 Row-Level Security
 
 **What We're Doing**: Users can only see their own data.
 
@@ -2398,9 +2860,9 @@ SET ROW FILTER nike_prod.sales.customer_filter ON (email);
 
 ---
 
-### 14. Cost Optimization
+### 15. Cost Optimization
 
-#### 14.1 Cluster Optimization
+#### 15.1 Cluster Optimization
 
 **Right-Size Clusters**:
 ```python
@@ -2419,7 +2881,7 @@ cluster_config = {
 - ✅ Use spot instances for non-critical jobs
 - ✅ Right-size instances (don't over-provision)
 
-#### 14.2 Job Optimization
+#### 15.2 Job Optimization
 
 **Optimize Job Costs**:
 ```python
@@ -2443,7 +2905,7 @@ spark.sql("VACUUM delta.`/mnt/delta/sales` RETAIN 7 DAYS")
 spark.sql("OPTIMIZE delta.`/mnt/delta/sales` ZORDER BY (customer_id, date)")
 ```
 
-#### 14.3 Serverless Compute
+#### 15.3 Serverless Compute
 
 **What is Serverless?**
 Compute that automatically scales and manages infrastructure for you.
@@ -2466,7 +2928,7 @@ Compute that automatically scales and manages infrastructure for you.
 # No cluster management needed!
 ```
 
-#### 14.4 Photon Engine
+#### 15.4 Photon Engine
 
 **What is Photon?**
 Databricks' native vectorized query engine (faster than Spark for some workloads).
@@ -2493,7 +2955,7 @@ cluster_config = {
 
 **Note**: Photon is automatically enabled in Databricks SQL warehouses.
 
-#### 14.5 Storage Optimization
+#### 15.5 Storage Optimization
 
 **Reduce Storage Costs**:
 ```python
@@ -2792,10 +3254,12 @@ result = salted.groupBy("customer_id", "salt") \
 
 **1. Requirements Gathering**:
 - **Volume**: 1TB/day = ~42GB/hour = ~700MB/minute
+- **Peak Load**: 2x normal = 84GB/hour
 - **Sources**: Multiple (S3, Kafka, databases)
 - **Latency**: Batch (hourly) + Real-time (optional)
-- **Retention**: 2 years
+- **Retention**: 2 years (~730TB storage)
 - **Users**: 100+ analysts, 10+ data engineers
+- **Processing Window**: 1 hour batch jobs
 
 **2. Architecture Design**:
 
@@ -2864,8 +3328,12 @@ result = salted.groupBy("customer_id", "salt") \
 
 **Processing**:
 - **DLT Pipelines**: Bronze → Silver → Gold
-- **Spark Clusters**: Auto-scaling (2-20 workers)
+- **Spark Clusters**: 
+  - Bronze: 4-12 workers (i3.2xlarge) - 6 workers normal
+  - Silver: 4-12 workers (i3.2xlarge) - 8 workers normal
+  - Gold: 2-8 workers (i3.2xlarge) - 4 workers normal
 - **Scheduling**: Databricks Workflows
+- **Processing Time**: ~40-60 minutes per batch
 
 **Storage**:
 - **Delta Lake**: All layers
@@ -2923,13 +3391,36 @@ sales_df.write.format("delta") \
     .save("/mnt/delta/bronze/sales")
 ```
 
-**Auto-Scaling**:
+**Auto-Scaling with Concrete Numbers**:
 ```python
-cluster_config = {
+# Bronze Layer: 42GB/hour ingestion
+bronze_cluster = {
+    "node_type_id": "i3.2xlarge",  # 8 vCPU, 61GB RAM, 1.9TB disk per worker
+    "autoscale": {
+        "min_workers": 4,      # Baseline: 32 vCPUs, 244GB RAM
+        "max_workers": 12,     # Peak: 96 vCPUs, 732GB RAM
+        "target_workers": 6     # Normal: 48 vCPUs, 366GB RAM
+    }
+}
+# Capacity: 6 workers × 1.8 TB/hour = 10.8 TB/hour (well above 42GB/hour need)
+
+# Silver Layer: Transformations (more CPU intensive)
+silver_cluster = {
+    "node_type_id": "i3.2xlarge",
+    "autoscale": {
+        "min_workers": 4,
+        "max_workers": 12,
+        "target_workers": 8     # More workers for complex transforms
+    }
+}
+
+# Gold Layer: Aggregations (less intensive)
+gold_cluster = {
+    "node_type_id": "i3.2xlarge",
     "autoscale": {
         "min_workers": 2,
-        "max_workers": 20,  # Scale up for 1TB/day
-        "target_workers": 8
+        "max_workers": 8,
+        "target_workers": 4     # Fewer workers needed
     }
 }
 ```
@@ -2943,17 +3434,35 @@ spark.sql("OPTIMIZE delta.`/mnt/delta/silver/sales`")
 spark.sql("VACUUM delta.`/mnt/delta/silver/sales` RETAIN 7 DAYS")
 ```
 
-**6. Cost Optimization**:
-- Use job clusters (terminate after job)
-- Auto-scaling (scale down when idle)
-- Optimize Delta tables (reduce storage)
-- Partition efficiently (reduce scan costs)
+**6. Cost Optimization with Numbers**:
+
+**Daily Cost Breakdown**:
+```python
+# Job clusters (run ~1 hour/day total, not 24/7)
+bronze_cost = 6 workers × $0.60/hour × 0.3 hours = $1.08/day
+silver_cost = 8 workers × $0.60/hour × 0.5 hours = $2.40/day
+gold_cost = 4 workers × $0.60/hour × 0.2 hours = $0.48/day
+
+# Total compute: ~$4/day = ~$120/month
+# Storage (S3): ~730TB × $0.023/GB/month = ~$17,000/month
+# Total: ~$17,120/month
+
+# Cost per GB processed: $17,120 / (1TB × 30 days) = ~$0.57/GB
+```
+
+**Optimization Strategies**:
+- ✅ Job clusters (96% savings vs 24/7 all-purpose)
+- ✅ Auto-scaling (67% savings vs fixed max size)
+- ✅ Spot instances (70% savings for non-critical)
+- ✅ Optimize Delta tables (20-30% storage reduction)
+- ✅ Efficient partitioning (reduce scan costs by 80-90%)
 
 **7. Monitoring**:
 - DLT pipeline health dashboard
-- Query performance metrics
-- Cost monitoring
-- Data quality metrics
+- Query performance metrics (target: < 1 minute for common queries)
+- Cost monitoring (track DBU usage, cluster hours)
+- Data quality metrics (expectation violations)
+- Cluster utilization (target: 60-80% CPU, 70-85% memory)
 
 **Key Points**:
 - ✅ Medallion architecture (Bronze/Silver/Gold)
@@ -3737,17 +4246,81 @@ spark.sql("VACUUM delta.`/mnt/delta/silver/sales` RETAIN 7 DAYS")
 spark.sql("ALTER TABLE sales CLUSTER BY (customer_id, sale_date)")
 ```
 
-**5. Scalability**:
-- **Auto-scaling**: 2-20 workers based on load
-- **Partitioning**: By date (year/month/day)
-- **Optimization**: Daily OPTIMIZE, weekly VACUUM
-- **Monitoring**: DLT dashboard, query performance
+**5. Cluster Sizing & Scalability**:
+
+**Data Volume Breakdown**:
+- **1TB/day** = 42GB/hour = 700MB/minute
+- **Peak load**: 2x normal = 84GB/hour
+- **Processing window**: 1 hour batch
+
+**Cluster Configuration**:
+```python
+# Bronze Layer (Ingestion) - 42GB/hour
+bronze_cluster = {
+    "node_type_id": "i3.2xlarge",  # 8 vCPU, 61GB RAM per worker
+    "autoscale": {
+        "min_workers": 4,      # Baseline: 4 × 8 = 32 vCPUs
+        "max_workers": 12,     # Peak: 12 × 8 = 96 vCPUs
+        "target_workers": 6     # Normal: 6 × 8 = 48 vCPUs
+    }
+}
+# Throughput: 6 workers × 1.8 TB/hour = 10.8 TB/hour capacity
+# Actual need: 42GB/hour → Well within capacity ✅
+
+# Silver Layer (Transformation) - More CPU intensive
+silver_cluster = {
+    "node_type_id": "i3.2xlarge",
+    "autoscale": {
+        "min_workers": 4,
+        "max_workers": 12,
+        "target_workers": 8    # More workers for transformations
+    }
+}
+# Throughput: 8 workers × 1.8 TB/hour = 14.4 TB/hour capacity ✅
+
+# Gold Layer (Aggregation) - Less intensive
+gold_cluster = {
+    "node_type_id": "i3.2xlarge",
+    "autoscale": {
+        "min_workers": 2,
+        "max_workers": 8,
+        "target_workers": 4    # Fewer workers needed
+    }
+}
+```
+
+**Processing Time Estimates**:
+- **Bronze**: 42GB ÷ (6 workers × 1.8 TB/hour) = ~15-20 minutes
+- **Silver**: 42GB ÷ (8 workers × 1.8 TB/hour) = ~20-30 minutes (with transformations)
+- **Gold**: ~10GB (aggregated) ÷ (4 workers × 1.8 TB/hour) = ~5-10 minutes
+- **Total**: ~40-60 minutes per batch
+
+**Storage Requirements**:
+- **Bronze**: 1TB/day × 2 years retention = ~730TB
+- **Silver**: ~500TB (after cleaning/deduplication)
+- **Gold**: ~50TB (aggregated)
+- **Total**: ~1.3PB storage
 
 **6. Cost Optimization**:
-- Job clusters (terminate after job)
-- Auto-scaling (scale down when idle)
-- Efficient partitioning (reduce scans)
-- Regular optimization (reduce storage)
+
+**Daily Cost Breakdown**:
+```python
+# Job clusters (run 1 hour/day, not 24/7)
+bronze_cost = 6 workers × $0.60/hour × 0.3 hours = $1.08/day
+silver_cost = 8 workers × $0.60/hour × 0.5 hours = $2.40/day
+gold_cost = 4 workers × $0.60/hour × 0.2 hours = $0.48/day
+
+# Total compute: ~$4/day
+# Storage: ~$20-30/day (S3 at $0.023/GB/month)
+# Total: ~$25-35/day = ~$750-1050/month
+```
+
+**Cost Optimization Strategies**:
+- ✅ Job clusters (terminate after job) - 96% savings vs 24/7
+- ✅ Auto-scaling (scale down when idle)
+- ✅ Efficient partitioning (reduce scan costs)
+- ✅ Regular optimization (reduce storage costs)
+- ✅ Spot instances for non-critical jobs (70% savings)
 
 **Key Design Decisions**:
 - ✅ Medallion architecture (Bronze/Silver/Gold)
