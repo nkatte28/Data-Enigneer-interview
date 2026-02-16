@@ -1,5 +1,40 @@
 # Topic 3: Databricks Data Engineering - Complete Guide
 
+## 📑 Table of Contents
+
+### Part 1: Fundamentals
+1. [Databricks Overview & Architecture](#1-databricks-overview--architecture)
+2. [Understanding Your Data](#2-understanding-your-data-sample-raw-data)
+3. [Delta Lake Fundamentals](#3-delta-lake-fundamentals)
+4. [Delta Lake Advanced Features](#4-delta-lake-advanced-features)
+
+### Part 2: Data Governance & Sharing
+5. [Unity Catalog - Data Governance Foundation](#5-unity-catalog---data-governance-foundation)
+6. [Delta Sharing - Share Data Across Clouds](#6-delta-sharing---share-data-across-clouds)
+
+### Part 3: Data Processing
+7. [Delta Live Tables (DLT)](#7-delta-live-tables-dlt---declarative-pipelines)
+8. [Spark Structured Streaming](#8-spark-structured-streaming---real-time-processing)
+9. [DLT + Structured Streaming](#9-delta-live-tables--structured-streaming)
+
+### Part 4: Integration & Optimization
+10. [Reading from Different Sources](#10-reading-from-different-sources)
+11. [Spark Job Optimization](#11-spark-job-optimization)
+12. [Latest Optimizations - Predictive Optimization](#12-latest-optimizations---predictive-optimization)
+
+### Part 5: Governance & Cost
+13. [Data Governance & PII Protection](#13-data-governance--pii-protection)
+14. [Cost Optimization](#14-cost-optimization)
+
+### Part 6: Interview & Practical
+16. [Interview Questions & Answers](#16-databricks-interview-questions--answers)
+17. [System Design with Databricks](#17-system-design-with-databricks)
+18. [Troubleshooting Common Issues](#18-troubleshooting-common-issues)
+19. [Hands-On Exercises](#19-hands-on-exercises)
+20. [Edge Cases & Advanced Scenarios](#20-edge-cases--advanced-scenarios)
+
+---
+
 ## 🎯 Learning Goals
 
 By the end of this topic, you should be able to:
@@ -2150,72 +2185,6 @@ Load Decreases → Scale Down
 - ✅ Monitor scaling behavior
 - ✅ Use with autotermination
 
-#### 11.2 Performance Tuning - Key Configs
-
-**What We're Doing**: Make Spark jobs run faster.
-
-**Key Configuration Parameters**:
-
-```python
-spark = SparkSession.builder \
-    .appName("OptimizedJob") \
-    .config("spark.sql.shuffle.partitions", "200") \
-    .config("spark.sql.adaptive.enabled", "true") \
-    .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
-    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
-    .config("spark.sql.files.maxPartitionBytes", "134217728") \
-    .getOrCreate()
-```
-
-**What Each Config Does**:
-- `spark.sql.shuffle.partitions`: Number of partitions after shuffle (default: 200)
-- `spark.sql.adaptive.enabled`: Enable adaptive query execution (auto-tunes)
-- `spark.sql.files.maxPartitionBytes`: Max bytes per partition (128MB default)
-- `spark.serializer`: Use Kryo for better performance
-
-**What is Auto Scaling?**
-Automatically add or remove cluster nodes based on workload demand.
-
-**Why Auto Scaling?**
-- ✅ **Cost Effective**: Scale down when idle, scale up when busy
-- ✅ **Performance**: Always right-sized for workload
-- ✅ **Automatic**: No manual intervention needed
-
-**Enable Auto Scaling**:
-```python
-cluster_config = {
-    "spark_version": "13.3.x-scala2.12",
-    "node_type_id": "i3.xlarge",
-    "autoscale": {
-        "min_workers": 1,      # Minimum nodes
-        "max_workers": 10,     # Maximum nodes
-        "target_workers": 4    # Target nodes
-    }
-}
-```
-
-**How It Works**:
-```
-Low Load → Scale Down (1 node)
-    ↓
-Medium Load → Scale Up (4 nodes)
-    ↓
-High Load → Scale Up (10 nodes)
-    ↓
-Load Decreases → Scale Down
-```
-
-**Benefits**:
-- ✅ Pay only for what you use
-- ✅ Faster job completion (scale up for big jobs)
-- ✅ Lower costs (scale down when idle)
-
-**Best Practices**:
-- ✅ Set min_workers based on baseline load
-- ✅ Set max_workers based on peak load
-- ✅ Monitor scaling behavior
-- ✅ Use with autotermination
-
 #### 11.3 Handling Data Skew
 
 **What is Skew?**
@@ -2322,7 +2291,7 @@ new_sales = spark.read.format("delta") \
 
 ### 13. Data Governance & PII Protection
 
-#### 11.1 Delta Sharing
+#### 13.1 Column-Level Security
 
 **What We're Doing**: Share data securely across different clouds (AWS → Azure).
 
@@ -2361,7 +2330,7 @@ shared_sales = spark.table("azure_nike.nike_sales_share.raw_sales")
 
 ### 14. Cost Optimization
 
-#### 12.1 Column-Level Security
+#### 14.1 Cluster Optimization
 
 **What We're Doing**: Mask PII data (emails, phone numbers).
 
@@ -2428,10 +2397,6 @@ SET ROW FILTER nike_prod.sales.customer_filter ON (email);
 ```
 
 ---
-
-### 15. Cost Optimization
-
-#### 13.1 Cluster Optimization
 
 **Right-Size Clusters**:
 ```python
@@ -2541,7 +2506,7 @@ sales_df.write.format("delta") \
 
 ---
 
-## 🎯 Tier 1: Critical Sections for Interview Success
+## 🎯 Interview Preparation & Advanced Topics
 
 ### 16. Databricks Interview Questions & Answers
 
