@@ -208,7 +208,23 @@ sales.show()
 
 **What We're Doing**: Add new sales records without overwriting existing data.
 
-**New Data to Add**:
+**Use Cases**:
+- ✅ Daily batch ingestion (new sales each day)
+- ✅ Streaming data (append new events)
+- ✅ Incremental loads (only new data)
+
+**Example 1: Daily Batch Append**
+
+**Scenario**: Every day, new sales data arrives. We want to add it to existing data.
+
+**Existing Data**:
+```
+sale_id   | customer_id | amount | sale_date
+SALE-001  | 101         | 150.00 | 2024-01-15
+SALE-002  | 102         | 200.00 | 2024-01-15
+```
+
+**New Data to Add** (today's sales):
 ```python
 new_sales = spark.createDataFrame([
     ("SALE-003", 103, 503, 120.00, "2024-01-16"),
@@ -224,6 +240,62 @@ new_sales.write.format("delta") \
 spark.read.format("delta").load("/mnt/delta/bronze/sales").count()
 # Output: 4
 ```
+
+**Result**:
+```
+sale_id   | customer_id | amount | sale_date
+SALE-001  | 101         | 150.00 | 2024-01-15  ← Existing
+SALE-002  | 102         | 200.00 | 2024-01-15  ← Existing
+SALE-003  | 103         | 120.00 | 2024-01-16  ← Appended!
+SALE-004  | 101         | 150.00 | 2024-01-16  ← Appended!
+```
+
+**Example 2: Streaming Append**
+
+**Scenario**: Real-time sales events from Kafka, append as they arrive.
+
+```python
+# Stream from Kafka and append to Delta
+sales_stream = spark.readStream \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "kafka:9092") \
+    .option("subscribe", "nike-sales") \
+    .load()
+
+# Parse and append
+parsed_stream = sales_stream.select(
+    from_json(col("value").cast("string"), schema).alias("data")
+).select("data.*")
+
+# Append mode (only new rows)
+parsed_stream.writeStream \
+    .format("delta") \
+    .outputMode("append") \
+    .option("checkpointLocation", "/mnt/delta/checkpoints/sales") \
+    .start("/mnt/delta/bronze/sales")
+```
+
+**Example 3: Partitioned Append**
+
+**Scenario**: Append data to specific partitions (faster queries).
+
+```python
+# Append with partitioning
+new_sales.write.format("delta") \
+    .mode("append") \
+    .partitionBy("sale_date") \
+    .save("/mnt/delta/bronze/sales")
+
+# Benefits:
+# - Faster queries (only read relevant partitions)
+# - Easier data management (delete old partitions)
+```
+
+**Best Practices for Append**:
+- ✅ Use partitioning for large tables
+- ✅ Validate data before appending (schema, constraints)
+- ✅ Monitor append performance (many small appends = slow)
+- ✅ Batch small appends together when possible
 
 **Operation 2: Update Existing Records**
 
@@ -270,24 +342,32 @@ spark.read.format("delta").load("/mnt/delta/bronze/sales") \
 
 **What We're Doing**: Update existing records if they exist, insert if they don't.
 
+**Use Cases**:
+- ✅ Change Data Capture (CDC) - sync changes from source
+- ✅ Idempotent writes - safe to rerun
+- ✅ Slowly Changing Dimensions (SCD Type 1)
+- ✅ Deduplication - update duplicates
+
+**Use Case 1: Basic Upsert (Update or Insert)**
+
 **Scenario**: We receive updated sales data. Some sales already exist (update), some are new (insert).
 
 **Existing Data**:
 ```
-sale_id   | customer_id | amount
-SALE-001  | 101         | 135.00
-SALE-002  | 102         | 200.00
+sale_id   | customer_id | amount | sale_date
+SALE-001  | 101         | 135.00 | 2024-01-15
+SALE-002  | 102         | 200.00 | 2024-01-15
 ```
 
 **New/Updated Data**:
 ```python
 updates_df = spark.createDataFrame([
-    ("SALE-001", 101, 140.00),  # Updated amount
-    ("SALE-003", 103, 120.00)   # New sale
-], ["sale_id", "customer_id", "amount"])
+    ("SALE-001", 101, 140.00, "2024-01-15"),  # Updated amount
+    ("SALE-003", 103, 120.00, "2024-01-16")   # New sale
+], ["sale_id", "customer_id", "amount", "sale_date"])
 ```
 
-**Merge Code**:
+**Basic Merge Code**:
 ```python
 from delta.tables import DeltaTable
 
@@ -297,27 +377,402 @@ delta_table = DeltaTable.forPath(spark, "/mnt/delta/bronze/sales")
 delta_table.alias("target").merge(
     updates_df.alias("source"),
     "target.sale_id = source.sale_id"  # Match on sale_id
-).whenMatchedUpdateAll() \    # If match found → update
- .whenNotMatchedInsertAll() \  # If no match → insert
+).whenMatchedUpdateAll() \    # If match found → update all columns
+ .whenNotMatchedInsertAll() \  # If no match → insert all columns
  .execute()
 ```
 
 **Result**:
 ```
-sale_id   | customer_id | amount
-SALE-001  | 101         | 140.00  ← Updated!
-SALE-002  | 102         | 200.00  ← Unchanged
-SALE-003  | 103         | 120.00  ← Inserted!
+sale_id   | customer_id | amount | sale_date
+SALE-001  | 101         | 140.00 | 2024-01-15  ← Updated!
+SALE-002  | 102         | 200.00 | 2024-01-15  ← Unchanged
+SALE-003  | 103         | 120.00 | 2024-01-16  ← Inserted!
 ```
+
+**Use Case 2: Conditional Merge (Update Only If Changed)**
+
+**Scenario**: Only update if values actually changed (avoid unnecessary writes).
+
+**Existing Data**:
+```
+sale_id   | customer_id | amount | last_updated
+SALE-001  | 101         | 140.00 | 2024-01-15 10:00:00
+```
+
+**New Data**:
+```python
+updates_df = spark.createDataFrame([
+    ("SALE-001", 101, 140.00, "2024-01-15 11:00:00"),  # Same amount, new timestamp
+    ("SALE-002", 102, 250.00, "2024-01-15 11:00:00")   # New sale
+], ["sale_id", "customer_id", "amount", "last_updated"])
+```
+
+**Conditional Merge**:
+```python
+delta_table.alias("target").merge(
+    updates_df.alias("source"),
+    "target.sale_id = source.sale_id"
+).whenMatchedUpdate(
+    condition="target.amount != source.amount",  # Only update if amount changed
+    set={
+        "amount": "source.amount",
+        "last_updated": "source.last_updated"
+    }
+).whenNotMatchedInsertAll() \
+ .execute()
+```
+
+**Result**:
+```
+sale_id   | customer_id | amount | last_updated
+SALE-001  | 101         | 140.00 | 2024-01-15 10:00:00  ← Not updated (amount same)
+SALE-002  | 102         | 250.00 | 2024-01-15 11:00:00  ← Inserted!
+```
+
+**Use Case 3: Selective Column Updates**
+
+**Scenario**: Update only specific columns, keep others unchanged.
+
+**Existing Data**:
+```
+sale_id   | customer_id | amount | discount | sale_date
+SALE-001  | 101         | 150.00 | 0.0      | 2024-01-15
+```
+
+**New Data** (only discount changed):
+```python
+updates_df = spark.createDataFrame([
+    ("SALE-001", 101, 150.00, 10.0, "2024-01-15")  # Only discount changed
+], ["sale_id", "customer_id", "amount", "discount", "sale_date"])
+```
+
+**Selective Update**:
+```python
+delta_table.alias("target").merge(
+    updates_df.alias("source"),
+    "target.sale_id = source.sale_id"
+).whenMatchedUpdate(
+    set={
+        "discount": "source.discount"  # Only update discount
+        # amount and sale_date stay unchanged
+    }
+).whenNotMatchedInsertAll() \
+ .execute()
+```
+
+**Result**:
+```
+sale_id   | customer_id | amount | discount | sale_date
+SALE-001  | 101         | 150.00 | 10.0     | 2024-01-15  ← Only discount updated!
+```
+
+**Use Case 4: Merge with Delete (Soft Delete)**
+
+**Scenario**: Mark records as deleted instead of actually deleting them.
+
+**Existing Data**:
+```
+sale_id   | customer_id | amount | is_deleted
+SALE-001  | 101         | 150.00 | false
+SALE-002  | 102         | 200.00 | false
+```
+
+**Delete Request**:
+```python
+deletes_df = spark.createDataFrame([
+    ("SALE-001",)  # Sale to delete
+], ["sale_id"])
+```
+
+**Soft Delete Merge**:
+```python
+delta_table.alias("target").merge(
+    deletes_df.alias("source"),
+    "target.sale_id = source.sale_id"
+).whenMatchedUpdate(
+    set={"is_deleted": "true"}  # Mark as deleted
+).execute()
+```
+
+**Result**:
+```
+sale_id   | customer_id | amount | is_deleted
+SALE-001  | 101         | 150.00 | true   ← Soft deleted!
+SALE-002  | 102         | 200.00 | false
+```
+
+**Use Case 5: Deduplication with Merge**
+
+**Scenario**: Remove duplicates, keep the latest record.
+
+**Problem Data** (duplicates):
+```
+sale_id   | customer_id | amount | ingestion_time
+SALE-001  | 101         | 150.00 | 2024-01-15 10:00:00
+SALE-001  | 101         | 150.00 | 2024-01-15 11:00:00  ← Duplicate!
+SALE-001  | 101         | 150.00 | 2024-01-15 12:00:00  ← Duplicate!
+```
+
+**Deduplication Merge**:
+```python
+# Group by sale_id, keep latest
+deduplicated = updates_df.groupBy("sale_id") \
+    .agg(
+        max("ingestion_time").alias("latest_time"),
+        first("customer_id").alias("customer_id"),
+        first("amount").alias("amount")
+    )
+
+delta_table.alias("target").merge(
+    deduplicated.alias("source"),
+    "target.sale_id = source.sale_id"
+).whenMatchedUpdateAll() \
+ .whenNotMatchedInsertAll() \
+ .execute()
+```
+
+**Best Practices for Merge**:
+- ✅ Use specific match conditions (avoid full table scans)
+- ✅ Use conditional updates (only update if changed)
+- ✅ Index/partition on merge keys for performance
+- ✅ Test merge logic on sample data first
+- ✅ Monitor merge performance (can be slow on large tables)
 
 **Operation 4: Delete**
 
 **What We're Doing**: Remove old sales data (older than 2 years).
 
+**Use Cases**:
+- ✅ Data retention policies (delete old data)
+- ✅ Remove bad data
+- ✅ Cleanup after testing
+
+**Example 1: Delete by Condition**:
 ```python
 # Delete sales older than 2 years
 delta_table.delete("sale_date < '2022-01-01'")
 ```
+
+**Example 2: Delete Specific Records**:
+```python
+# Delete specific sale
+delta_table.delete("sale_id = 'SALE-001'")
+```
+
+**Example 3: Delete in Merge**:
+```python
+# Delete records that exist in source
+delta_table.alias("target").merge(
+    deletes_df.alias("source"),
+    "target.sale_id = source.sale_id"
+).whenMatchedDelete() \  # Delete matched records
+ .execute()
+```
+
+---
+
+### 3.4 Change Data Feed (CDF) - Track All Changes
+
+**What is Change Data Feed?**
+Tracks all changes (inserts, updates, deletes) to a Delta table. Like an audit log!
+
+**Why CDF?**
+- ✅ CDC (Change Data Capture) - sync changes to downstream systems
+- ✅ Audit trail - see what changed and when
+- ✅ Incremental processing - only process changed records
+- ✅ Data replication - sync to other systems
+
+#### 3.4.1 Enable Change Data Feed
+
+**Enable CDF on Table**:
+```python
+# Enable CDF when creating table
+spark.sql("""
+    CREATE TABLE bronze.sales (
+        sale_id BIGINT,
+        customer_id BIGINT,
+        amount DECIMAL(10,2),
+        sale_date DATE
+    ) USING DELTA
+    LOCATION '/mnt/delta/bronze/sales'
+    TBLPROPERTIES (delta.enableChangeDataFeed = true)
+""")
+```
+
+**Enable CDF on Existing Table**:
+```python
+# Enable on existing table
+spark.sql("""
+    ALTER TABLE delta.`/mnt/delta/bronze/sales`
+    SET TBLPROPERTIES (delta.enableChangeDataFeed = true)
+""")
+```
+
+#### 3.4.2 Reading Change Data Feed
+
+**What We're Doing**: See all changes made to the table.
+
+**Sample Operations**:
+1. Inserted: SALE-003
+2. Updated: SALE-001 (amount changed)
+3. Deleted: SALE-002
+
+**Read CDF**:
+```python
+# Read all changes since version 0
+changes_df = spark.read.format("delta") \
+    .option("readChangeFeed", "true") \
+    .option("startingVersion", 0) \
+    .load("/mnt/delta/bronze/sales")
+
+changes_df.show()
+```
+
+**Output**:
+```
++----+----------+-----------+----------+------+----------+------------------+
+|_change_type|sale_id    |customer_id|amount |sale_date |_commit_version   |
++----+----------+-----------+----------+------+----------+------------------+
+|insert      |SALE-003   |103        |120.00 |2024-01-16|5                 |
+|update_preimage|SALE-001|101        |150.00 |2024-01-15|6                 |  ← Old value
+|update_postimage|SALE-001|101       |140.00 |2024-01-15|6                 |  ← New value
+|delete      |SALE-002   |102        |200.00 |2024-01-15|7                 |
++----+----------+-----------+----------+------+----------+------------------+
+```
+
+**CDF Columns**:
+- `_change_type`: `insert`, `update_preimage`, `update_postimage`, `delete`
+- `_commit_version`: Version when change occurred
+- `_commit_timestamp`: When change occurred
+
+#### 3.4.3 Use Case 1: Incremental Processing
+
+**What We're Doing**: Only process records that changed, not the entire table.
+
+**Scenario**: Daily pipeline. Yesterday processed 1M records. Today only 10K records changed.
+
+**Without CDF** (Slow):
+```python
+# Process ALL 1,010,000 records every day!
+silver = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+```
+
+**With CDF** (Fast):
+```python
+# Only process changed records (10K)
+changes = spark.read.format("delta") \
+    .option("readChangeFeed", "true") \
+    .option("startingVersion", last_processed_version) \
+    .load("/mnt/delta/bronze/sales")
+
+# Filter only inserts and updates
+new_and_updated = changes.filter(
+    col("_change_type").isin("insert", "update_postimage")
+)
+
+# Process only changed records
+silver = new_and_updated.select(
+    col("sale_id"),
+    col("customer_id"),
+    col("amount")
+)
+```
+
+**Performance**:
+- Without CDF: Process 1M records → 10 minutes
+- With CDF: Process 10K records → 1 minute ✅
+
+#### 3.4.4 Use Case 2: Sync to Downstream System
+
+**What We're Doing**: Sync changes from Delta Lake to another system (e.g., Snowflake, Redshift).
+
+**Scenario**: Delta Lake is source of truth. Need to sync changes to Snowflake.
+
+**CDF Sync Pipeline**:
+```python
+# Read changes since last sync
+changes = spark.read.format("delta") \
+    .option("readChangeFeed", "true") \
+    .option("startingVersion", last_synced_version) \
+    .load("/mnt/delta/bronze/sales")
+
+# Handle inserts
+inserts = changes.filter(col("_change_type") == "insert")
+inserts.write.format("snowflake") \
+    .option("dbtable", "sales") \
+    .mode("append") \
+    .save()
+
+# Handle updates
+updates = changes.filter(col("_change_type") == "update_postimage")
+updates.write.format("snowflake") \
+    .option("dbtable", "sales") \
+    .mode("overwrite") \
+    .save()
+
+# Handle deletes
+deletes = changes.filter(col("_change_type") == "delete")
+# Delete from Snowflake using merge or delete statement
+```
+
+#### 3.4.5 Use Case 3: Audit Trail
+
+**What We're Doing**: Track who changed what and when.
+
+**Audit Query**:
+```python
+# See all changes with timestamps
+audit_trail = spark.read.format("delta") \
+    .option("readChangeFeed", "true") \
+    .option("startingVersion", 0) \
+    .load("/mnt/delta/bronze/sales")
+
+# Who changed sale_id = 'SALE-001'?
+audit_trail.filter("sale_id = 'SALE-001'") \
+    .select("_change_type", "amount", "_commit_version", "_commit_timestamp") \
+    .orderBy("_commit_version") \
+    .show()
+```
+
+**Output**:
+```
++----+----------+------+----------------+-------------------+
+|_change_type|amount|_commit_version|_commit_timestamp   |
++----+----------+------+----------------+-------------------+
+|insert      |150.00|1              |2024-01-15 10:00:00|  ← Created
+|update_postimage|140.00|6          |2024-01-16 11:00:00|  ← Updated
+|update_postimage|135.00|8          |2024-01-16 15:00:00|  ← Updated again
++----+----------+------+----------------+-------------------+
+```
+
+#### 3.4.6 Use Case 4: Real-Time Change Streaming
+
+**What We're Doing**: Stream changes in real-time to downstream systems.
+
+**Stream CDF Changes**:
+```python
+# Stream changes as they happen
+changes_stream = spark.readStream \
+    .format("delta") \
+    .option("readChangeFeed", "true") \
+    .option("startingVersion", latest_version) \
+    .load("/mnt/delta/bronze/sales")
+
+# Process changes
+changes_stream.writeStream \
+    .format("kafka") \
+    .option("topic", "sales-changes") \
+    .option("checkpointLocation", "/mnt/delta/checkpoints/cdf") \
+    .start()
+```
+
+**Best Practices for CDF**:
+- ✅ Enable CDF on tables that need change tracking
+- ✅ Use CDF for incremental processing (much faster!)
+- ✅ Monitor CDF storage (adds some overhead)
+- ✅ Clean up old CDF data periodically
+- ✅ Use version ranges for efficient reads
 
 ---
 
