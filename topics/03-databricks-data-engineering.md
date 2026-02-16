@@ -68,20 +68,55 @@ Databricks is a unified analytics platform built on Apache Spark, designed for d
 - **All-Purpose**: Development, testing, exploration
 - **Job Clusters**: Production workflows, scheduled jobs (cost-effective!)
 
-**Nike Store Example - Architecture**:
+**Nike Store Example - Architecture Flow**:
 ```
-Data Sources (S3, Kafka, Databases)
-    ↓
-Databricks Workspace
-    ├── Notebooks (ETL code)
-    ├── Jobs (Scheduled pipelines)
-    ├── Clusters (Compute)
-    └── Unity Catalog (Governance)
-    ↓
-Delta Lake (Bronze/Silver/Gold)
-    ↓
-Analytics (BI Tools, ML Models)
+┌─────────────────────────────────────────────────────────┐
+│              Data Sources                                │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐            │
+│  │   S3     │  │  Kafka   │  │ Databases │            │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘            │
+└───────┼──────────────┼──────────────┼──────────────────┘
+        │              │              │
+        └──────────────┴──────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   Databricks Workspace       │
+        │  ┌────────────────────────┐  │
+        │  │  Unity Catalog         │  │ ← Governance Foundation
+        │  │  (catalog.schema.table)│  │
+        │  └───────────┬────────────┘  │
+        │              ↓                │
+        │  ┌────────────────────────┐  │
+        │  │  Delta Lake            │  │
+        │  │  (Bronze/Silver/Gold)  │  │
+        │  └───────────┬────────────┘  │
+        │              ↓                │
+        │  ┌────────────────────────┐  │
+        │  │  DLT Pipelines          │  │
+        │  │  (Data Quality Checks)  │  │
+        │  └───────────┬────────────┘  │
+        │              ↓                │
+        │  ┌────────────────────────┐  │
+        │  │  Spark Clusters         │  │
+        │  │  (Compute)              │  │
+        │  └────────────────────────┘  │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │      Analytics & ML          │
+        │  ┌──────────┐  ┌──────────┐ │
+        │  │ BI Tools │  │ ML Models │ │
+        │  └──────────┘  └──────────┘ │
+        └──────────────────────────────┘
 ```
+
+**Key Flow**:
+1. **Data Ingestion**: Raw data from S3, Kafka, databases
+2. **Unity Catalog**: Register and govern all data assets
+3. **Delta Lake**: Store data in Bronze/Silver/Gold layers
+4. **DLT**: Build reliable pipelines with quality checks
+5. **Processing**: Spark clusters process the data
+6. **Analytics**: BI tools and ML models consume data
 
 ---
 
@@ -982,6 +1017,79 @@ WHERE customer_id = 101 AND sale_date = '2024-01-15';
 - ✅ Don't Z-ORDER too many columns (diminishing returns)
 - ✅ Schedule OPTIMIZE daily/weekly
 
+#### 4.5 Liquid Clustering - Modern Clustering (Latest!)
+
+**What is Liquid Clustering?**
+A new clustering method (replacing Z-ORDER) that automatically maintains optimal data organization without manual OPTIMIZE runs.
+
+**Why Liquid Clustering?**
+- ✅ **Automatic**: No need to run OPTIMIZE manually
+- ✅ **Flexible**: Can add/remove clustering columns anytime
+- ✅ **Better Performance**: Optimized for modern query patterns
+- ✅ **Simpler**: One-time setup, automatic maintenance
+
+**Z-ORDER vs Liquid Clustering**:
+```
+Z-ORDER:
+- Manual OPTIMIZE required
+- Fixed clustering columns
+- Can't change after creation
+
+Liquid Clustering:
+- Automatic optimization
+- Can change clustering columns
+- Better for evolving schemas
+```
+
+**Enable Liquid Clustering**:
+
+**When Creating Table**:
+```sql
+CREATE TABLE nike_prod.sales.raw_sales (
+    sale_id BIGINT,
+    customer_id BIGINT,
+    product_id BIGINT,
+    amount DECIMAL(10,2),
+    sale_date DATE
+) USING DELTA
+CLUSTER BY (customer_id, sale_date)  -- Liquid clustering!
+LOCATION '/mnt/delta/bronze/sales';
+```
+
+**On Existing Table**:
+```sql
+-- Enable liquid clustering on existing table
+ALTER TABLE nike_prod.sales.raw_sales
+CLUSTER BY (customer_id, sale_date);
+```
+
+**What Happens?**
+- ✅ Data automatically organized by clustering columns
+- ✅ New writes automatically clustered
+- ✅ No manual OPTIMIZE needed!
+- ✅ Queries automatically benefit
+
+**Example Query Performance**:
+```sql
+-- Query benefits from liquid clustering automatically
+SELECT * FROM nike_prod.sales.raw_sales
+WHERE customer_id = 101 AND sale_date = '2024-01-15';
+-- Automatically uses clustering for fast lookup!
+```
+
+**Change Clustering Columns**:
+```sql
+-- Change clustering columns (flexible!)
+ALTER TABLE nike_prod.sales.raw_sales
+CLUSTER BY (product_id, sale_date);
+```
+
+**Best Practices**:
+- ✅ Use for frequently filtered columns
+- ✅ 2-4 clustering columns recommended
+- ✅ Choose columns with high cardinality
+- ✅ Works great with Unity Catalog tables
+
 #### 4.4 Schema Evolution - Add Columns Safely
 
 **What We're Doing**: Add new columns to existing Delta table without breaking existing data.
@@ -1021,7 +1129,317 @@ new_sales_df.write.format("delta") \
 
 ---
 
-### 5. Delta Live Tables (DLT) - Declarative Pipelines
+### 5. Unity Catalog - Data Governance Foundation
+
+**What is Unity Catalog?**
+Unity Catalog is the **foundation** for data governance in Databricks. It provides centralized metadata management, access control, and data lineage across all your data assets.
+
+**Why Unity Catalog First?**
+- ✅ **Foundation**: All Delta tables should be registered in Unity Catalog
+- ✅ **Governance**: Centralized permissions and security
+- ✅ **Organization**: Three-level namespace (catalog.schema.table)
+- ✅ **Integration**: Works seamlessly with Delta Lake, DLT, and all Databricks features
+
+**Architecture Flow**:
+```
+Delta Lake Tables
+    ↓
+Unity Catalog (Register & Govern)
+    ↓
+Access Control & Lineage
+    ↓
+Databricks Features (DLT, SQL, ML)
+```
+
+#### 5.1 Three-Level Namespace
+
+**Structure**:
+```
+catalog.schema.table
+```
+
+**Nike Store Example**:
+```
+nike_prod.sales.raw_sales          ← Production sales data
+nike_prod.sales.cleaned_sales      ← Cleaned sales data
+nike_prod.analytics.daily_summary ← Analytics aggregates
+nike_dev.sales.test_sales          ← Development/test data
+```
+
+**Why This Matters**:
+- ✅ Clear organization (prod vs dev)
+- ✅ Easy permissions (grant at catalog/schema/table level)
+- ✅ Separate environments
+- ✅ Better data discovery
+
+**Flow Diagram**:
+```
+Catalog (nike_prod)
+    ├── Schema (sales)
+    │   ├── Table (raw_sales)
+    │   ├── Table (cleaned_sales)
+    │   └── Table (aggregated_sales)
+    └── Schema (analytics)
+        └── Table (daily_summary)
+```
+
+#### 5.2 Creating Catalogs and Schemas
+
+**Step-by-Step Setup**:
+
+```sql
+-- Step 1: Create catalog (top-level container)
+CREATE CATALOG IF NOT EXISTS nike_prod
+COMMENT 'Nike production data catalog';
+
+-- Step 2: Create schema (database-like container)
+CREATE SCHEMA IF NOT EXISTS nike_prod.sales
+COMMENT 'Sales data schema';
+
+-- Step 3: Create Delta table (registered in Unity Catalog)
+CREATE TABLE nike_prod.sales.raw_sales (
+    sale_id BIGINT,
+    customer_id BIGINT,
+    amount DECIMAL(10,2),
+    sale_date TIMESTAMP
+) USING DELTA
+LOCATION '/mnt/delta/bronze/sales';
+```
+
+**What Happened?**
+- ✅ Table created in Delta Lake format
+- ✅ Registered in Unity Catalog
+- ✅ Can now query with `nike_prod.sales.raw_sales`
+- ✅ Governed with permissions
+
+**Query the Table**:
+```sql
+SELECT * FROM nike_prod.sales.raw_sales;
+```
+
+#### 5.3 Registering Existing Delta Tables
+
+**What We're Doing**: Register an existing Delta table in Unity Catalog.
+
+**Scenario**: You have a Delta table at `/mnt/delta/bronze/sales` but it's not in Unity Catalog yet.
+
+**Register Existing Table**:
+```sql
+-- Register existing Delta table
+CREATE TABLE nike_prod.sales.raw_sales
+USING DELTA
+LOCATION '/mnt/delta/bronze/sales';
+```
+
+**Now You Can**:
+- ✅ Query with catalog path: `nike_prod.sales.raw_sales`
+- ✅ Apply permissions
+- ✅ Track lineage
+- ✅ Use in DLT pipelines
+
+#### 5.4 Permissions - Who Can Access What
+
+**What We're Doing**: Control who can read/write/modify data.
+
+**Grant Permissions**:
+```sql
+-- Grant SELECT on table (read-only)
+GRANT SELECT ON TABLE nike_prod.sales.raw_sales TO `analysts@nike.com`;
+
+-- Grant ALL on schema (full access)
+GRANT ALL PRIVILEGES ON SCHEMA nike_prod.sales TO `data_engineers@nike.com`;
+
+-- Grant USE CATALOG (can access catalog)
+GRANT USE CATALOG ON CATALOG nike_prod TO `readers@nike.com`;
+
+-- Grant MODIFY on table (can write)
+GRANT MODIFY ON TABLE nike_prod.sales.raw_sales TO `data_engineers@nike.com`;
+```
+
+**Revoke Permissions**:
+```sql
+REVOKE SELECT ON TABLE nike_prod.sales.raw_sales FROM `analysts@nike.com`;
+```
+
+**Permission Hierarchy**:
+```
+Catalog Level
+    ↓
+Schema Level
+    ↓
+Table Level
+    ↓
+Column Level (advanced)
+```
+
+#### 5.5 Unity Catalog with Delta Lake
+
+**Best Practice**: Always register Delta tables in Unity Catalog!
+
+**Why?**
+- ✅ Centralized governance
+- ✅ Better security
+- ✅ Data lineage tracking
+- ✅ Integration with all Databricks features
+
+**Example - Creating Delta Table with Unity Catalog**:
+```python
+# Create Delta table
+sales_df.write.format("delta") \
+    .save("/mnt/delta/bronze/sales")
+
+# Register in Unity Catalog
+spark.sql("""
+    CREATE TABLE nike_prod.sales.raw_sales
+    USING DELTA
+    LOCATION '/mnt/delta/bronze/sales'
+""")
+```
+
+**Now Use in DLT**:
+```python
+import dlt
+
+@dlt.table(name="silver_sales")
+def silver_sales():
+    # Read from Unity Catalog table
+    return spark.table("nike_prod.sales.raw_sales")
+```
+
+---
+
+### 6. Delta Sharing - Share Data Across Clouds
+
+**What is Delta Sharing?**
+Open protocol for secure data sharing across organizations, clouds, and platforms. Share Delta tables without copying data!
+
+**Why Delta Sharing?**
+- ✅ Share data across clouds (AWS → Azure → GCP)
+- ✅ Share with external partners
+- ✅ No data copying (read directly from source)
+- ✅ Secure (token-based authentication)
+
+**Architecture Flow**:
+```
+Provider (AWS Databricks)
+    ├── Delta Table: nike_prod.sales.raw_sales
+    ├── Create Share
+    └── Grant Access
+         ↓
+Consumer (Azure Databricks / Snowflake / Power BI)
+    ├── Connect to Share
+    ├── Query Shared Data
+    └── No Data Copy!
+```
+
+#### 6.1 Provider Side - Share Your Data
+
+**What We're Doing**: Share a Delta table with external consumers.
+
+**Step 1: Create Share**:
+```sql
+-- Create a share
+CREATE SHARE nike_sales_share
+COMMENT 'Share Nike sales data with partners';
+```
+
+**Step 2: Add Table to Share**:
+```sql
+-- Add Delta table to share
+ALTER SHARE nike_sales_share 
+ADD TABLE nike_prod.sales.raw_sales;
+```
+
+**Step 3: Create Recipient**:
+```sql
+-- Create recipient (external consumer)
+CREATE RECIPIENT partner_company
+COMMENT 'Partner company access';
+```
+
+**Step 4: Grant Access**:
+```sql
+-- Grant access to recipient
+GRANT SELECT ON SHARE nike_sales_share 
+TO RECIPIENT partner_company;
+```
+
+**Step 5: Get Share URL**:
+```sql
+-- Get share URL (for consumer)
+SHOW SHARES;
+-- Returns: https://sharing-server.com/delta-sharing/shares/nike_sales_share
+```
+
+#### 6.2 Consumer Side - Access Shared Data
+
+**What We're Doing**: Access data shared by another organization.
+
+**Step 1: Create Catalog from Share**:
+```sql
+-- Create catalog from shared data
+CREATE CATALOG partner_nike
+USING DELTASHARING
+LOCATION 'https://sharing-server.com/delta-sharing/'
+WITH CREDENTIAL (
+    'bearerToken' = 'your-token-here'
+);
+```
+
+**Step 2: Query Shared Data**:
+```python
+# Query shared data as regular table
+shared_sales = spark.table("partner_nike.nike_sales_share.raw_sales")
+shared_sales.show()
+```
+
+**Or SQL**:
+```sql
+SELECT * FROM partner_nike.nike_sales_share.raw_sales;
+```
+
+**What Happens?**
+- ✅ Data read directly from provider (no copy!)
+- ✅ Secure token authentication
+- ✅ Works across clouds
+- ✅ Real-time access
+
+#### 6.3 Use Cases
+
+**Use Case 1: Multi-Cloud Data Sharing**
+```
+AWS Databricks (Provider)
+    ↓ Delta Sharing
+Azure Databricks (Consumer)
+    ↓ Query
+GCP Databricks (Consumer)
+```
+
+**Use Case 2: Partner Data Sharing**
+```
+Nike (Provider)
+    ↓ Share sales data
+Retail Partners (Consumers)
+    ↓ Access via Delta Sharing
+```
+
+**Use Case 3: Data Marketplace**
+```
+Data Provider
+    ↓ Share datasets
+Multiple Consumers
+    ↓ Pay-per-use access
+```
+
+**Benefits**:
+- ✅ No data duplication
+- ✅ Real-time access
+- ✅ Secure sharing
+- ✅ Cross-platform (works with Snowflake, Power BI, etc.)
+
+---
+
+### 7. Delta Live Tables (DLT) - Declarative Pipelines
 
 **What is DLT?**
 A declarative framework for building reliable data pipelines. You define **what** you want, DLT handles **how**.
@@ -1200,7 +1618,7 @@ def silver_sales():
 
 ---
 
-### 6. Spark Structured Streaming - Real-Time Processing
+### 8. Spark Structured Streaming - Real-Time Processing
 
 **What is Structured Streaming?**
 Process data in real-time as it arrives (like Kafka streams).
@@ -1372,7 +1790,7 @@ sales_stream \
 
 ---
 
-### 7. Delta Live Tables + Structured Streaming
+### 9. Delta Live Tables + Structured Streaming
 
 **Combining DLT + Streaming**:
 
@@ -1442,7 +1860,7 @@ def gold_hourly_sales():
 
 ---
 
-### 8. Unity Catalog - Data Governance
+### 10. Reading from Different Sources
 
 **What is Unity Catalog?**
 Centralized data governance for all your data assets.
@@ -1516,7 +1934,7 @@ REVOKE SELECT ON TABLE nike_prod.sales.raw_sales FROM `analysts@nike.com`;
 
 ---
 
-### 9. Reading from Different Sources
+### 11. Spark Job Optimization
 
 #### 9.1 Snowflake
 
@@ -1609,9 +2027,107 @@ mongo_df = spark.read \
 
 ---
 
-### 10. Spark Job Optimization
+### 12. Latest Optimizations - Predictive Optimization
 
-#### 10.1 Performance Tuning - Key Configs
+**What is Predictive Optimization?**
+AI-powered feature that automatically optimizes your Delta tables based on query patterns. No manual tuning needed!
+
+**Why Predictive Optimization?**
+- ✅ **Automatic**: Learns from your queries and optimizes automatically
+- ✅ **Intelligent**: Uses ML to predict optimal file sizes and clustering
+- ✅ **Zero Maintenance**: Runs in background, no manual intervention
+- ✅ **Cost Effective**: Reduces storage and compute costs
+
+**How It Works**:
+```
+Query Patterns
+    ↓
+ML Model (Learns)
+    ↓
+Predictive Optimization
+    ↓
+Auto-OPTIMIZE & Auto-Compact
+    ↓
+Better Performance
+```
+
+**Enable Predictive Optimization**:
+```sql
+-- Enable on table
+ALTER TABLE nike_prod.sales.raw_sales
+SET TBLPROPERTIES (
+    'delta.predictiveOptimization.enabled' = 'true'
+);
+```
+
+**What It Does Automatically**:
+- ✅ Optimizes file sizes based on query patterns
+- ✅ Auto-compacts small files
+- ✅ Suggests optimal clustering columns
+- ✅ Monitors and adjusts continuously
+
+**Benefits**:
+- Before: Manual OPTIMIZE runs → 30 min/week
+- After: Automatic optimization → 0 min/week ✅
+- Performance: 2-5x faster queries
+- Cost: 20-30% storage reduction
+
+**Best Practices**:
+- ✅ Enable on frequently queried tables
+- ✅ Let it run for 1-2 weeks to learn patterns
+- ✅ Monitor results in Databricks UI
+- ✅ Works great with Unity Catalog
+
+---
+
+### 11. Spark Job Optimization
+
+#### 11.1 Auto Scaling - Dynamic Cluster Sizing
+
+**What is Auto Scaling?**
+Automatically add or remove cluster nodes based on workload demand.
+
+**Why Auto Scaling?**
+- ✅ **Cost Effective**: Scale down when idle, scale up when busy
+- ✅ **Performance**: Always right-sized for workload
+- ✅ **Automatic**: No manual intervention needed
+
+**Enable Auto Scaling**:
+```python
+cluster_config = {
+    "spark_version": "13.3.x-scala2.12",
+    "node_type_id": "i3.xlarge",
+    "autoscale": {
+        "min_workers": 1,      # Minimum nodes
+        "max_workers": 10,     # Maximum nodes
+        "target_workers": 4    # Target nodes
+    }
+}
+```
+
+**How It Works**:
+```
+Low Load → Scale Down (1 node)
+    ↓
+Medium Load → Scale Up (4 nodes)
+    ↓
+High Load → Scale Up (10 nodes)
+    ↓
+Load Decreases → Scale Down
+```
+
+**Benefits**:
+- ✅ Pay only for what you use
+- ✅ Faster job completion (scale up for big jobs)
+- ✅ Lower costs (scale down when idle)
+
+**Best Practices**:
+- ✅ Set min_workers based on baseline load
+- ✅ Set max_workers based on peak load
+- ✅ Monitor scaling behavior
+- ✅ Use with autotermination
+
+#### 11.2 Performance Tuning - Key Configs
 
 **What We're Doing**: Make Spark jobs run faster.
 
@@ -1634,7 +2150,50 @@ spark = SparkSession.builder \
 - `spark.sql.files.maxPartitionBytes`: Max bytes per partition (128MB default)
 - `spark.serializer`: Use Kryo for better performance
 
-#### 10.2 Handling Data Skew
+**What is Auto Scaling?**
+Automatically add or remove cluster nodes based on workload demand.
+
+**Why Auto Scaling?**
+- ✅ **Cost Effective**: Scale down when idle, scale up when busy
+- ✅ **Performance**: Always right-sized for workload
+- ✅ **Automatic**: No manual intervention needed
+
+**Enable Auto Scaling**:
+```python
+cluster_config = {
+    "spark_version": "13.3.x-scala2.12",
+    "node_type_id": "i3.xlarge",
+    "autoscale": {
+        "min_workers": 1,      # Minimum nodes
+        "max_workers": 10,     # Maximum nodes
+        "target_workers": 4    # Target nodes
+    }
+}
+```
+
+**How It Works**:
+```
+Low Load → Scale Down (1 node)
+    ↓
+Medium Load → Scale Up (4 nodes)
+    ↓
+High Load → Scale Up (10 nodes)
+    ↓
+Load Decreases → Scale Down
+```
+
+**Benefits**:
+- ✅ Pay only for what you use
+- ✅ Faster job completion (scale up for big jobs)
+- ✅ Lower costs (scale down when idle)
+
+**Best Practices**:
+- ✅ Set min_workers based on baseline load
+- ✅ Set max_workers based on peak load
+- ✅ Monitor scaling behavior
+- ✅ Use with autotermination
+
+#### 11.3 Handling Data Skew
 
 **What is Skew?**
 Uneven data distribution across partitions.
@@ -1681,7 +2240,7 @@ spark.conf.set("spark.sql.adaptive.skewJoin.enabled", "true")
 spark.conf.set("spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes", "256MB")
 ```
 
-#### 10.3 Memory Optimization
+#### 11.4 Memory Optimization
 
 **Memory Configuration**:
 ```python
@@ -1711,7 +2270,7 @@ revenue_by_customer = sales_with_customer.groupBy("customer_name").sum("amount")
 customer_dim.unpersist()
 ```
 
-#### 10.4 Processing Too Much Data - Strategies
+#### 11.5 Processing Too Much Data - Strategies
 
 **Problem**: Table has 1 billion rows, but you only need last 30 days.
 
@@ -1738,7 +2297,7 @@ new_sales = spark.read.format("delta") \
 
 ---
 
-### 11. Multi-Cloud Data Sharing
+### 13. Data Governance & PII Protection
 
 #### 11.1 Delta Sharing
 
@@ -1777,7 +2336,7 @@ shared_sales = spark.table("azure_nike.nike_sales_share.raw_sales")
 
 ---
 
-### 12. Data Governance & PII Protection
+### 14. Cost Optimization
 
 #### 12.1 Column-Level Security
 
@@ -1847,7 +2406,7 @@ SET ROW FILTER nike_prod.sales.customer_filter ON (email);
 
 ---
 
-### 13. Cost Optimization
+### 15. Cost Optimization
 
 #### 13.1 Cluster Optimization
 
