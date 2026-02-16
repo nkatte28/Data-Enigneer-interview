@@ -1936,7 +1936,7 @@ REVOKE SELECT ON TABLE nike_prod.sales.raw_sales FROM `analysts@nike.com`;
 
 ### 11. Spark Job Optimization
 
-#### 9.1 Snowflake
+#### 10.1 Snowflake
 
 **What We're Doing**: Read data from Snowflake and write to Delta Lake.
 
@@ -1982,7 +1982,7 @@ OPTIONS (
 SELECT * FROM nike_prod.sales.snowflake_sales;
 ```
 
-#### 9.2 Apache Iceberg
+#### 10.2 Apache Iceberg
 
 **Read from Iceberg**:
 ```python
@@ -2002,7 +2002,7 @@ USING ICEBERG
 LOCATION 's3://nike-data/iceberg/sales/';
 ```
 
-#### 9.3 Other Sources
+#### 10.3 Other Sources
 
 **PostgreSQL**:
 ```python
@@ -2082,7 +2082,30 @@ SET TBLPROPERTIES (
 
 ### 11. Spark Job Optimization
 
-#### 11.1 Auto Scaling - Dynamic Cluster Sizing
+#### 11.1 Performance Tuning - Key Configs
+
+**What We're Doing**: Make Spark jobs run faster.
+
+**Key Configuration Parameters**:
+
+```python
+spark = SparkSession.builder \
+    .appName("OptimizedJob") \
+    .config("spark.sql.shuffle.partitions", "200") \
+    .config("spark.sql.adaptive.enabled", "true") \
+    .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+    .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+    .config("spark.sql.files.maxPartitionBytes", "134217728") \
+    .getOrCreate()
+```
+
+**What Each Config Does**:
+- `spark.sql.shuffle.partitions`: Number of partitions after shuffle (default: 200)
+- `spark.sql.adaptive.enabled`: Enable adaptive query execution (auto-tunes)
+- `spark.sql.files.maxPartitionBytes`: Max bytes per partition (128MB default)
+- `spark.serializer`: Use Kryo for better performance
+
+#### 11.2 Auto Scaling - Dynamic Cluster Sizing
 
 **What is Auto Scaling?**
 Automatically add or remove cluster nodes based on workload demand.
@@ -2515,6 +2538,2057 @@ sales_df.write.format("delta") \
     .partitionBy("year", "month", "day") \
     .save("/mnt/delta/sales")
 ```
+
+---
+
+## 🎯 Tier 1: Critical Sections for Interview Success
+
+### 16. Databricks Interview Questions & Answers
+
+**Why This Section?**
+These are the most common Databricks questions asked in senior data engineer interviews. Master these to ace your interview!
+
+---
+
+#### Q1: Explain Delta Lake ACID Transactions
+
+**Question**: "How does Delta Lake implement ACID transactions? Walk me through the mechanism."
+
+**Answer Structure**:
+
+**1. What is ACID?**
+- **Atomicity**: All operations succeed or all fail
+- **Consistency**: Data remains valid after transaction
+- **Isolation**: Concurrent transactions don't interfere
+- **Durability**: Committed changes persist
+
+**2. How Delta Lake Implements ACID**:
+
+**Transaction Log Mechanism**:
+```
+Write Operation
+    ↓
+Create Transaction Log Entry (_delta_log/)
+    ↓
+Write Data Files (Parquet)
+    ↓
+Commit Transaction (Update Log)
+    ↓
+ACID Guarantee ✅
+```
+
+**Example**:
+```python
+# Transaction 1: Insert 1000 records
+sales_df.write.format("delta").mode("append").save("/mnt/delta/sales")
+# Creates: 00000000000000000000.json in _delta_log/
+
+# Transaction 2: Update 100 records
+delta_table.update(condition="amount < 0", set={"amount": "0"})
+# Creates: 00000000000000000001.json in _delta_log/
+
+# If update fails halfway → Transaction log not updated
+# Previous version (00000000000000000000.json) still valid!
+```
+
+**3. Key Components**:
+- **Transaction Log**: JSON files in `_delta_log/` directory
+- **Versioning**: Each transaction = new version
+- **Atomic Writes**: All-or-nothing file operations
+- **Isolation**: Readers see consistent snapshots
+
+**4. Real-World Example**:
+```python
+# Scenario: Update 1M records, job fails at 500K
+delta_table.update(condition="date = '2024-01-15'", set={"status": "processed"})
+
+# What Happens:
+# - Job fails at 500K records
+# - Transaction log NOT updated
+# - Previous version still intact
+# - No partial updates! ✅
+```
+
+**Key Points to Emphasize**:
+- ✅ Transaction log ensures atomicity
+- ✅ Versioning enables time travel
+- ✅ Readers always see consistent state
+- No partial writes possible
+
+---
+
+#### Q2: When Would You Use DLT vs Spark?
+
+**Question**: "When should I use Delta Live Tables (DLT) vs regular Spark? What are the trade-offs?"
+
+**Answer Structure**:
+
+**1. Delta Live Tables (DLT) - Use When**:
+
+✅ **Use DLT When**:
+- Building new pipelines from scratch
+- Need built-in data quality checks
+- Want automatic dependency management
+- Need pipeline monitoring out-of-the-box
+- Team prefers declarative approach
+
+**Example**:
+```python
+# DLT: Declarative, automatic quality checks
+@dlt.table(name="silver_sales")
+@dlt.expect("valid_amount", "amount > 0")
+@dlt.expect_or_drop("invalid_customer", "customer_id IS NOT NULL")
+def silver_sales():
+    return dlt.read("bronze_sales")
+```
+
+**2. Regular Spark - Use When**:
+
+✅ **Use Spark When**:
+- Need fine-grained control
+- Complex custom logic required
+- Legacy codebase migration
+- Performance-critical custom optimizations
+- Need RDD-level operations
+
+**Example**:
+```python
+# Spark: Full control, manual quality checks
+bronze = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+silver = bronze.filter(col("amount") > 0) \
+    .filter(col("customer_id").isNotNull()) \
+    .withColumn("quality_score", custom_quality_function())
+silver.write.format("delta").save("/mnt/delta/silver/sales")
+```
+
+**3. Comparison Table**:
+
+| Feature | DLT | Spark |
+|---------|-----|-------|
+| **Setup** | Easy (decorators) | More code |
+| **Data Quality** | Built-in expectations | Manual checks |
+| **Dependency Management** | Automatic | Manual |
+| **Monitoring** | Built-in UI | Custom setup |
+| **Flexibility** | Limited | Full control |
+| **Learning Curve** | Low | Medium |
+| **Performance** | Good | Excellent (with tuning) |
+
+**4. Real-World Decision**:
+
+**Scenario**: Build a new sales pipeline with quality checks
+
+**DLT Approach** (Recommended):
+```python
+@dlt.table(name="silver_sales")
+@dlt.expect("valid_amount", "amount > 0")
+def silver_sales():
+    return dlt.read("bronze_sales")
+```
+- ✅ Faster development
+- ✅ Built-in quality monitoring
+- ✅ Less code
+
+**Spark Approach** (If needed):
+```python
+# Only if you need custom logic DLT can't handle
+```
+
+**5. Hybrid Approach**:
+```python
+# Use DLT for standard pipelines
+# Use Spark for custom/legacy code
+# Best of both worlds!
+```
+
+**Key Points**:
+- ✅ DLT: Faster development, built-in quality
+- ✅ Spark: More control, better for complex logic
+- ✅ Choose based on requirements, not preference
+
+---
+
+#### Q3: How Do You Handle Data Skew in Databricks?
+
+**Question**: "Your Spark job is slow. You suspect data skew. How do you identify and fix it?"
+
+**Answer Structure**:
+
+**1. What is Data Skew?**
+Uneven data distribution across partitions. One partition has way more data than others.
+
+**Example**:
+```
+Partition 1: 1,000,000 rows (customer_id = 101) ← Hot partition!
+Partition 2: 1,000 rows
+Partition 3: 1,000 rows
+... (most partitions have 1,000 rows)
+```
+
+**2. How to Identify Skew**:
+
+**Method 1: Check Partition Sizes**:
+```python
+# Check data distribution
+df.groupBy("customer_id").count().orderBy(desc("count")).show()
+
+# Output:
+# customer_id | count
+# 101         | 1000000  ← Skewed!
+# 102         | 1000
+# 103         | 1000
+```
+
+**Method 2: Spark UI**:
+- Check "Stages" tab
+- Look for tasks with much longer duration
+- One task taking 10x longer = skew!
+
+**Method 3: Check Partition Stats**:
+```python
+# Check partition sizes
+spark.sql("ANALYZE TABLE sales COMPUTE STATISTICS FOR ALL COLUMNS")
+spark.sql("DESCRIBE EXTENDED sales").show()
+```
+
+**3. Solutions**:
+
+**Solution 1: Salting** (Most Common):
+```python
+from pyspark.sql.functions import *
+
+# Add random salt to skewed column
+salted_df = df.withColumn("salt", (rand() * 100).cast("int"))
+
+# Group by salted key
+result = salted_df.groupBy("customer_id", "salt") \
+    .agg(sum("amount").alias("total")) \
+    .groupBy("customer_id") \
+    .agg(sum("total").alias("grand_total"))
+```
+
+**Solution 2: Broadcast Small Tables**:
+```python
+from pyspark.sql.functions import broadcast
+
+# Broadcast dimension table (small)
+customer_dim = spark.table("dim_customer")  # 10K rows
+df.join(broadcast(customer_dim), "customer_id")
+```
+
+**Solution 3: Enable Skew Join**:
+```python
+spark.conf.set("spark.sql.adaptive.skewJoin.enabled", "true")
+spark.conf.set("spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes", "256MB")
+```
+
+**Solution 4: Repartition**:
+```python
+# Repartition to more partitions
+df.repartition(200, "customer_id")
+```
+
+**4. Real-World Example**:
+
+**Problem**: Sales table has 1M rows for customer 101, but only 1K for others.
+
+**Solution**:
+```python
+# Step 1: Identify skew
+df.groupBy("customer_id").count().orderBy(desc("count")).show(10)
+
+# Step 2: Apply salting
+salted = df.withColumn("salt", (rand() * 50).cast("int"))
+
+# Step 3: Process with salt
+result = salted.groupBy("customer_id", "salt") \
+    .agg(sum("amount")) \
+    .groupBy("customer_id") \
+    .agg(sum("amount").alias("total"))
+
+# Result: Even distribution across partitions!
+```
+
+**Key Points**:
+- ✅ Identify: Check partition sizes, Spark UI
+- ✅ Fix: Salting (most common), broadcast, skew join
+- ✅ Monitor: Always check for skew in production
+
+---
+
+#### Q4: Design a Databricks Pipeline for 1TB/Day
+
+**Question**: "Design a Databricks pipeline that processes 1TB of data per day. Walk me through your architecture."
+
+**Answer Structure**:
+
+**1. Requirements Gathering**:
+- **Volume**: 1TB/day = ~42GB/hour = ~700MB/minute
+- **Sources**: Multiple (S3, Kafka, databases)
+- **Latency**: Batch (hourly) + Real-time (optional)
+- **Retention**: 2 years
+- **Users**: 100+ analysts, 10+ data engineers
+
+**2. Architecture Design**:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Data Sources                          │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐            │
+│  │   S3     │  │  Kafka   │  │   DBs    │            │
+│  │ (Batch)  │  │(Streaming)│ │ (JDBC)   │            │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘            │
+└───────┼──────────────┼──────────────┼──────────────────┘
+        │              │              │
+        └──────────────┴──────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   Databricks Workspace       │
+        │                              │
+        │  ┌────────────────────────┐ │
+        │  │  Unity Catalog          │ │
+        │  │  (Governance)           │ │
+        │  └───────────┬────────────┘ │
+        │              ↓               │
+        │  ┌────────────────────────┐ │
+        │  │  DLT Pipelines          │ │
+        │  │  (Bronze/Silver/Gold)  │ │
+        │  └───────────┬────────────┘ │
+        │              ↓               │
+        │  ┌────────────────────────┐ │
+        │  │  Spark Clusters         │ │
+        │  │  (Auto-scaling)         │ │
+        │  └────────────────────────┘ │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │      Delta Lake Storage      │
+        │  ┌────────────────────────┐ │
+        │  │  Bronze (Raw)          │ │
+        │  │  Partitioned by date   │ │
+        │  └───────────┬────────────┘ │
+        │              ↓               │
+        │  ┌────────────────────────┐ │
+        │  │  Silver (Cleaned)      │ │
+        │  │  Quality checked       │ │
+        │  └───────────┬────────────┘ │
+        │              ↓               │
+        │  ┌────────────────────────┐ │
+        │  │  Gold (Aggregated)     │ │
+        │  │  Business-ready        │ │
+        │  └────────────────────────┘ │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │      Analytics Layer         │
+        │  ┌──────────┐  ┌──────────┐ │
+        │  │ BI Tools │  │ ML Models│ │
+        │  └──────────┘  └──────────┘ │
+        └──────────────────────────────┘
+```
+
+**3. Component Selection**:
+
+**Ingestion**:
+- **S3 (Batch)**: Daily/hourly files
+- **Kafka (Streaming)**: Real-time events
+- **JDBC (Databases)**: Incremental loads
+
+**Processing**:
+- **DLT Pipelines**: Bronze → Silver → Gold
+- **Spark Clusters**: Auto-scaling (2-20 workers)
+- **Scheduling**: Databricks Workflows
+
+**Storage**:
+- **Delta Lake**: All layers
+- **Partitioning**: `year/month/day/hour`
+- **Optimization**: Daily OPTIMIZE + VACUUM
+
+**Governance**:
+- **Unity Catalog**: All tables registered
+- **Permissions**: Role-based access
+- **Lineage**: Automatic tracking
+
+**4. Implementation Details**:
+
+**Bronze Layer**:
+```python
+@dlt.table(name="bronze_sales")
+def bronze_sales():
+    # Batch from S3
+    batch = spark.read.format("json").load("s3://raw/sales/")
+    
+    # Streaming from Kafka
+    stream = spark.readStream.format("kafka") \
+        .option("subscribe", "sales") \
+        .load()
+    
+    return batch.union(stream)
+```
+
+**Silver Layer**:
+```python
+@dlt.table(name="silver_sales")
+@dlt.expect("valid_amount", "amount > 0")
+@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
+def silver_sales():
+    return dlt.read("bronze_sales") \
+        .withColumn("ingestion_time", current_timestamp())
+```
+
+**Gold Layer**:
+```python
+@dlt.table(name="gold_daily_sales")
+def gold_daily_sales():
+    return dlt.read("silver_sales") \
+        .groupBy("sale_date", "customer_id") \
+        .agg(sum("amount").alias("daily_revenue"))
+```
+
+**5. Scalability Considerations**:
+
+**Partitioning Strategy**:
+```python
+# Partition by date for efficient queries
+sales_df.write.format("delta") \
+    .partitionBy("year", "month", "day") \
+    .save("/mnt/delta/bronze/sales")
+```
+
+**Auto-Scaling**:
+```python
+cluster_config = {
+    "autoscale": {
+        "min_workers": 2,
+        "max_workers": 20,  # Scale up for 1TB/day
+        "target_workers": 8
+    }
+}
+```
+
+**Optimization Schedule**:
+```python
+# Daily OPTIMIZE
+spark.sql("OPTIMIZE delta.`/mnt/delta/silver/sales`")
+
+# Weekly VACUUM
+spark.sql("VACUUM delta.`/mnt/delta/silver/sales` RETAIN 7 DAYS")
+```
+
+**6. Cost Optimization**:
+- Use job clusters (terminate after job)
+- Auto-scaling (scale down when idle)
+- Optimize Delta tables (reduce storage)
+- Partition efficiently (reduce scan costs)
+
+**7. Monitoring**:
+- DLT pipeline health dashboard
+- Query performance metrics
+- Cost monitoring
+- Data quality metrics
+
+**Key Points**:
+- ✅ Medallion architecture (Bronze/Silver/Gold)
+- ✅ Partitioning strategy critical
+- ✅ Auto-scaling for variable load
+- ✅ Unity Catalog for governance
+- ✅ Daily optimization schedule
+
+---
+
+#### Q5: Explain Delta Lake Time Travel
+
+**Question**: "How does Delta Lake time travel work? Give me a practical example."
+
+**Answer Structure**:
+
+**1. What is Time Travel?**
+Query historical versions of your data at any point in time.
+
+**2. How It Works**:
+
+**Transaction Log Versioning**:
+```
+Version 1: CREATE TABLE (00000000000000000000.json)
+Version 2: INSERT 1000 rows (00000000000000000001.json)
+Version 3: UPDATE 100 rows (00000000000000000002.json)
+Version 4: DELETE 50 rows (00000000000000000003.json)
+```
+
+**3. Query Historical Versions**:
+
+**By Version Number**:
+```python
+# Read version 2 (before UPDATE)
+version_2 = spark.read.format("delta") \
+    .option("versionAsOf", 2) \
+    .load("/mnt/delta/sales")
+```
+
+**By Timestamp**:
+```python
+# Read data as of specific time
+version_time = spark.read.format("delta") \
+    .option("timestampAsOf", "2024-01-15 10:00:00") \
+    .load("/mnt/delta/sales")
+```
+
+**SQL Syntax**:
+```sql
+-- Query version 2
+SELECT * FROM delta.`/mnt/delta/sales` VERSION AS OF 2;
+
+-- Query as of timestamp
+SELECT * FROM delta.`/mnt/delta/sales` TIMESTAMP AS OF '2024-01-15 10:00:00';
+```
+
+**4. Practical Example**:
+
+**Scenario**: Yesterday, someone accidentally updated all sales amounts. Today, you need to see what data looked like before that mistake.
+
+**Step 1: Check History**:
+```python
+spark.sql("DESCRIBE HISTORY delta.`/mnt/delta/sales`").show()
+```
+
+**Output**:
+```
++-------+-------------------+----------+------------------+
+|version|timestamp          |operation|operationMetrics  |
++-------+-------------------+----------+------------------+
+|5      |2024-01-16 10:00:00|UPDATE   |{"numUpdatedRows":1000000}|
+|4      |2024-01-15 15:00:00|INSERT   |{"numInsertedRows":50000}|
+|3      |2024-01-15 10:00:00|CREATE   |{"numFiles":1}|
++-------+-------------------+----------+------------------+
+```
+
+**Step 2: Query Before Mistake**:
+```python
+# Version 4 (before the bad UPDATE)
+before_mistake = spark.read.format("delta") \
+    .option("versionAsOf", 4) \
+    .load("/mnt/delta/sales")
+
+# Compare
+current_total = spark.read.format("delta").load("/mnt/delta/sales") \
+    .agg(sum("amount")).collect()[0][0]
+
+before_total = before_mistake.agg(sum("amount")).collect()[0][0]
+
+print(f"Current: ${current_total}")
+print(f"Before mistake: ${before_total}")
+```
+
+**Step 3: Restore if Needed**:
+```sql
+-- Restore to version 4
+RESTORE TABLE delta.`/mnt/delta/sales` TO VERSION AS OF 4;
+```
+
+**5. Use Cases**:
+- ✅ **Audit**: "What did sales look like last week?"
+- ✅ **Debug**: "Why did this calculation change?"
+- ✅ **Rollback**: "Undo that bad update"
+- ✅ **Reproducibility**: "Recreate last month's report"
+
+**6. Limitations**:
+- ⚠️ VACUUM removes old versions (default: 7 days)
+- ⚠️ Can't time travel beyond retention period
+- ⚠️ Storage cost (keeps old files)
+
+**Key Points**:
+- ✅ Version-based and timestamp-based queries
+- ✅ Transaction log enables time travel
+- ✅ Practical for audit, debug, rollback
+- ⚠️ Limited by VACUUM retention
+
+---
+
+#### Q6: Unity Catalog vs Hive Metastore
+
+**Question**: "What's the difference between Unity Catalog and Hive Metastore? When should you migrate?"
+
+**Answer Structure**:
+
+**1. Hive Metastore (Legacy)**:
+- Traditional metadata store
+- Limited to single workspace
+- Basic permissions
+- No cross-cloud support
+
+**2. Unity Catalog (Modern)**:
+- Centralized governance
+- Multi-cloud support
+- Fine-grained permissions
+- Data lineage tracking
+- Better security
+
+**3. Key Differences**:
+
+| Feature | Hive Metastore | Unity Catalog |
+|---------|---------------|---------------|
+| **Scope** | Single workspace | Multi-workspace, multi-cloud |
+| **Permissions** | Basic (table-level) | Fine-grained (column/row-level) |
+| **Lineage** | Limited | Full lineage tracking |
+| **Security** | Basic | Advanced (PII masking, etc.) |
+| **Cross-Cloud** | No | Yes (Delta Sharing) |
+| **Future** | Legacy | Active development |
+
+**4. When to Migrate**:
+
+✅ **Migrate When**:
+- Starting new projects
+- Need fine-grained permissions
+- Multi-cloud requirements
+- Need data lineage
+- Security compliance requirements
+
+❌ **Don't Migrate When**:
+- Legacy systems (too risky)
+- Simple use cases (overkill)
+- No governance requirements
+- Small team (< 5 people)
+
+**5. Migration Path**:
+
+**Step 1: Register Existing Tables**:
+```sql
+-- Register Hive table in Unity Catalog
+CREATE TABLE nike_prod.sales.raw_sales
+USING DELTA
+LOCATION '/mnt/delta/bronze/sales';
+```
+
+**Step 2: Update Code**:
+```python
+# Old (Hive)
+spark.table("sales.raw_sales")
+
+# New (Unity Catalog)
+spark.table("nike_prod.sales.raw_sales")
+```
+
+**Step 3: Migrate Permissions**:
+```sql
+-- Migrate permissions
+GRANT SELECT ON TABLE nike_prod.sales.raw_sales TO `analysts@nike.com`;
+```
+
+**Key Points**:
+- ✅ Unity Catalog: Modern, multi-cloud, better security
+- ✅ Hive: Legacy, single workspace, basic
+- ✅ Migrate for new projects, stay on Hive for legacy
+
+---
+
+#### Q7: Troubleshoot Slow Delta Queries
+
+**Question**: "A Delta query that used to take 30 seconds now takes 5 minutes. How do you debug this?"
+
+**Answer Structure**:
+
+**1. Common Causes**:
+- Too many small files
+- Data skew
+- Missing partitions
+- Outdated statistics
+- Cluster resource issues
+
+**2. Debugging Steps**:
+
+**Step 1: Check Execution Plan**:
+```python
+# See what Spark is doing
+spark.sql("EXPLAIN SELECT * FROM sales WHERE date = '2024-01-15'").show(truncate=False)
+```
+
+**Look for**:
+- Full table scans (bad!)
+- Partition pruning (good!)
+- File count (too many = slow)
+
+**Step 2: Check File Sizes**:
+```python
+# Check table details
+spark.sql("DESCRIBE DETAIL delta.`/mnt/delta/sales`").show()
+
+# Check file count
+spark.sql("SELECT COUNT(*) as file_count FROM delta.`/mnt/delta/sales`").show()
+```
+
+**Step 3: Check Partitions**:
+```python
+# Verify partition pruning
+spark.sql("SHOW PARTITIONS sales").show()
+
+# Check if query uses partitions
+# Good: Only scans relevant partitions
+# Bad: Scans all partitions
+```
+
+**Step 4: Check Data Skew**:
+```python
+# Check data distribution
+spark.sql("""
+    SELECT date, COUNT(*) as row_count
+    FROM sales
+    GROUP BY date
+    ORDER BY row_count DESC
+""").show()
+```
+
+**3. Solutions**:
+
+**Solution 1: Run OPTIMIZE** (Most Common):
+```sql
+-- Compact small files
+OPTIMIZE delta.`/mnt/delta/sales`;
+
+-- With Z-ORDER for better clustering
+OPTIMIZE delta.`/mnt/delta/sales` ZORDER BY (customer_id, date);
+```
+
+**Solution 2: Fix Partitioning**:
+```python
+# Repartition if needed
+df.repartition("date").write.format("delta").mode("overwrite").save("/mnt/delta/sales")
+```
+
+**Solution 3: Increase Cluster Size**:
+```python
+# More workers = faster
+cluster_config = {"num_workers": 10}  # Was 2
+```
+
+**Solution 4: Use Liquid Clustering**:
+```sql
+-- Enable liquid clustering
+ALTER TABLE sales CLUSTER BY (customer_id, date);
+```
+
+**4. Real-World Debugging**:
+
+**Problem**: Query slow after many small appends
+
+**Debug**:
+```python
+# Step 1: Check file count
+spark.sql("DESCRIBE DETAIL sales").show()
+# Result: 10,000 files! (was 100)
+
+# Step 2: Check execution plan
+spark.sql("EXPLAIN SELECT * FROM sales WHERE date = '2024-01-15'").show()
+# Result: Scans 10,000 files
+
+# Solution: OPTIMIZE
+spark.sql("OPTIMIZE sales")
+# Result: 100 files, query fast again!
+```
+
+**Key Points**:
+- ✅ Check execution plan first
+- ✅ Too many small files = slow
+- ✅ OPTIMIZE is usually the fix
+- ✅ Monitor file count regularly
+
+---
+
+#### Q8: Delta Lake vs Parquet - When to Use Each?
+
+**Question**: "When should I use Delta Lake vs Parquet? What are the trade-offs?"
+
+**Answer Structure**:
+
+**1. Feature Comparison**:
+
+| Feature | Delta Lake | Parquet |
+|---------|-----------|---------|
+| **Updates** | ✅ Yes (UPDATE, DELETE, MERGE) | ❌ No (append-only) |
+| **ACID Transactions** | ✅ Yes | ❌ No |
+| **Time Travel** | ✅ Yes | ❌ No |
+| **Schema Evolution** | ✅ Yes | ⚠️ Limited |
+| **Performance** | ✅ Excellent | ✅ Excellent |
+| **Storage Cost** | ⚠️ Slightly higher | ✅ Lower |
+| **Complexity** | ⚠️ More complex | ✅ Simpler |
+
+**2. When to Use Delta Lake**:
+
+✅ **Use Delta Lake When**:
+- Need to update/delete data
+- Need ACID guarantees
+- Need time travel
+- Building data lakehouse
+- Multiple concurrent writers
+- Need schema evolution
+
+**Example**:
+```python
+# Need to update customer records
+delta_table.update(condition="customer_id = 101", set={"status": "active"})
+```
+
+**3. When to Use Parquet**:
+
+✅ **Use Parquet When**:
+- Append-only workloads
+- No updates needed
+- Cost-sensitive projects
+- Simple use cases
+- One-time data exports
+- Legacy systems
+
+**Example**:
+```python
+# Simple append-only log
+logs_df.write.format("parquet").mode("append").save("/data/logs")
+```
+
+**4. Real-World Decision**:
+
+**Scenario**: Sales data that needs updates vs. audit logs (append-only)
+
+**Sales Data → Delta Lake**:
+```python
+# Need to update/correct sales
+sales_df.write.format("delta").save("/mnt/delta/sales")
+# Can update, delete, time travel ✅
+```
+
+**Audit Logs → Parquet**:
+```python
+# Append-only, never update
+logs_df.write.format("parquet").mode("append").save("/data/logs")
+# Simpler, cheaper ✅
+```
+
+**5. Migration Path**:
+
+**Parquet → Delta Lake**:
+```python
+# Read Parquet
+parquet_df = spark.read.format("parquet").load("/data/sales")
+
+# Write as Delta
+parquet_df.write.format("delta").save("/mnt/delta/sales")
+```
+
+**Key Points**:
+- ✅ Delta: Updates, ACID, time travel
+- ✅ Parquet: Append-only, simpler, cheaper
+- ✅ Choose based on requirements
+
+---
+
+#### Q9: How Do You Optimize a DLT Pipeline?
+
+**Question**: "Your DLT pipeline is slow. How do you optimize it?"
+
+**Answer Structure**:
+
+**1. Common Performance Issues**:
+- Processing all data instead of incremental
+- Too many expectations
+- No partitioning
+- Large cluster overhead
+
+**2. Optimization Strategies**:
+
+**Strategy 1: Incremental Processing**:
+```python
+# Bad: Processes ALL data every run
+@dlt.table(name="silver_sales")
+def silver_sales():
+    return dlt.read("bronze_sales")  # Reads everything!
+
+# Good: Only process new data
+@dlt.table(name="silver_sales")
+def silver_sales():
+    return dlt.read_stream("bronze_sales") \
+        .filter(col("sale_date") >= current_date() - 1)  # Only last 24h
+```
+
+**Strategy 2: Optimize Expectations**:
+```python
+# Bad: Too many expensive expectations
+@dlt.expect("check1", "complex_function(col1)")
+@dlt.expect("check2", "another_complex_function(col2)")
+# ... 20 more expectations
+
+# Good: Essential expectations only
+@dlt.expect("valid_amount", "amount > 0")
+@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
+```
+
+**Strategy 3: Partition Efficiently**:
+```python
+@dlt.table(name="silver_sales")
+def silver_sales():
+    return dlt.read("bronze_sales") \
+        .withColumn("year", year("sale_date")) \
+        .withColumn("month", month("sale_date")) \
+        .withColumn("day", dayofmonth("sale_date"))
+# Partition by date for faster queries
+```
+
+**Strategy 4: Right-Size Clusters**:
+```python
+# Use appropriate cluster size
+# Too small = slow
+# Too large = wasted cost
+cluster_config = {
+    "num_workers": 4,  # Right-sized for workload
+    "node_type_id": "i3.xlarge"
+}
+```
+
+**3. Monitoring**:
+- Check DLT pipeline metrics
+- Monitor execution time
+- Check data quality violations
+- Review cluster utilization
+
+**4. Real-World Example**:
+
+**Problem**: Pipeline takes 2 hours, processes 1M records daily
+
+**Before**:
+```python
+@dlt.table(name="silver_sales")
+def silver_sales():
+    return dlt.read("bronze_sales")  # Processes 1M every day
+```
+
+**After**:
+```python
+@dlt.table(name="silver_sales")
+def silver_sales():
+    return dlt.read_stream("bronze_sales") \
+        .filter(col("sale_date") >= current_date() - 1)  # Only 10K new
+```
+
+**Result**: 2 hours → 10 minutes ✅
+
+**Key Points**:
+- ✅ Use incremental processing
+- ✅ Optimize expectations
+- ✅ Partition efficiently
+- ✅ Right-size clusters
+
+---
+
+#### Q10: Explain Change Data Feed (CDF)
+
+**Question**: "What is Change Data Feed? Give me a practical use case."
+
+**Answer Structure**:
+
+**1. What is CDF?**
+Tracks all changes (inserts, updates, deletes) to a Delta table.
+
+**2. How to Enable**:
+```sql
+ALTER TABLE sales SET TBLPROPERTIES (delta.enableChangeDataFeed = true);
+```
+
+**3. Reading CDF**:
+```python
+# Read all changes
+changes = spark.read.format("delta") \
+    .option("readChangeFeed", "true") \
+    .option("startingVersion", 0) \
+    .load("/mnt/delta/sales")
+```
+
+**4. CDF Output**:
+```
++----+----------+-----------+----------+------------------+
+|_change_type|sale_id    |customer_id|amount |_commit_version|
++----+----------+-----------+----------+------------------+
+|insert      |SALE-003   |103        |120.00 |5               |
+|update_preimage|SALE-001|101        |150.00 |6               | ← Old
+|update_postimage|SALE-001|101       |140.00 |6               | ← New
+|delete      |SALE-002   |102        |200.00 |7               |
++----+----------+-----------+----------+------------------+
+```
+
+**5. Use Case: Incremental Processing**:
+```python
+# Only process changed records (10K) instead of all (1M)
+changes = spark.read.format("delta") \
+    .option("readChangeFeed", "true") \
+    .option("startingVersion", last_processed_version) \
+    .load("/mnt/delta/sales")
+
+# Filter only inserts and updates
+new_and_updated = changes.filter(
+    col("_change_type").isin("insert", "update_postimage")
+)
+
+# Process only changed records
+process(new_and_updated)  # 10K records instead of 1M!
+```
+
+**6. Use Case: Sync to Downstream**:
+```python
+# Sync changes to Snowflake
+changes = spark.read.format("delta") \
+    .option("readChangeFeed", "true") \
+    .load("/mnt/delta/sales")
+
+# Handle inserts
+inserts = changes.filter(col("_change_type") == "insert")
+inserts.write.format("snowflake").mode("append").save()
+
+# Handle updates
+updates = changes.filter(col("_change_type") == "update_postimage")
+updates.write.format("snowflake").mode("overwrite").save()
+```
+
+**Key Points**:
+- ✅ Tracks all changes automatically
+- ✅ Great for incremental processing
+- ✅ Perfect for CDC (Change Data Capture)
+- ✅ 10-100x faster than full table scan
+
+---
+
+### 17. System Design with Databricks
+
+**Why This Section?**
+System design questions are critical for senior roles. Master these patterns to design scalable Databricks architectures.
+
+---
+
+#### 17.1 Design Pattern: Medallion Architecture
+
+**What is Medallion Architecture?**
+A data organization pattern: Bronze (raw) → Silver (cleaned) → Gold (aggregated).
+
+**Architecture Flow**:
+```
+┌─────────────────────────────────────────────────┐
+│           Data Sources                          │
+│  (S3, Kafka, Databases, APIs)                  │
+└──────────────────┬──────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────┐
+│           BRONZE LAYER                         │
+│  - Raw data (as-is)                            │
+│  - No transformations                          │
+│  - Partitioned by ingestion time               │
+│  - Long retention (2+ years)                   │
+└──────────────────┬──────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────┐
+│           SILVER LAYER                         │
+│  - Cleaned & validated                         │
+│  - Data quality checks                         │
+│  - Schema enforcement                          │
+│  - Deduplicated                                │
+│  - Partitioned by business key                │
+└──────────────────┬──────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────┐
+│           GOLD LAYER                           │
+│  - Business-ready aggregates                  │
+│  - Star schema (facts & dimensions)            │
+│  - Optimized for queries                       │
+│  - Partitioned for performance                 │
+└──────────────────┬──────────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────────┐
+│           Analytics & ML                       │
+│  (BI Tools, ML Models, APIs)                    │
+└─────────────────────────────────────────────────┘
+```
+
+**Implementation with DLT**:
+```python
+import dlt
+from pyspark.sql.functions import *
+
+# BRONZE: Raw ingestion
+@dlt.table(name="bronze_sales")
+def bronze_sales():
+    return spark.read.format("json").load("s3://raw/sales/")
+
+# SILVER: Cleaned & validated
+@dlt.table(name="silver_sales")
+@dlt.expect("valid_amount", "amount > 0")
+@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
+def silver_sales():
+    return dlt.read("bronze_sales") \
+        .withColumn("ingestion_time", current_timestamp()) \
+        .dropDuplicates(["sale_id"])
+
+# GOLD: Aggregated
+@dlt.table(name="gold_daily_sales")
+def gold_daily_sales():
+    return dlt.read("silver_sales") \
+        .groupBy("sale_date", "customer_id") \
+        .agg(
+            sum("amount").alias("daily_revenue"),
+            count("*").alias("transaction_count")
+        )
+```
+
+**When to Use**:
+- ✅ Building data lakehouse
+- ✅ Need data quality enforcement
+- ✅ Multiple downstream consumers
+- ✅ Long-term data retention
+
+**Benefits**:
+- ✅ Clear data lineage
+- ✅ Quality enforcement at each layer
+- ✅ Flexible for different use cases
+- ✅ Easy to debug (check each layer)
+
+---
+
+#### 17.2 Real-World Design: 1TB/Day Pipeline
+
+**Requirements**:
+- **Volume**: 1TB/day = ~42GB/hour
+- **Sources**: S3 (batch), Kafka (streaming), Databases (JDBC)
+- **Latency**: Batch (hourly) + Real-time (optional)
+- **Retention**: 2 years
+- **Users**: 100+ analysts, 10+ engineers
+
+**Architecture**:
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Data Sources                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐            │
+│  │   S3     │  │  Kafka   │  │   DBs    │            │
+│  │(42GB/hr) │  │(Streaming)│ │ (JDBC)   │            │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘            │
+└───────┼──────────────┼──────────────┼──────────────────┘
+        │              │              │
+        └──────────────┴──────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   Databricks Workspace       │
+        │                              │
+        │  ┌────────────────────────┐ │
+        │  │  Unity Catalog          │ │
+        │  │  (Governance)           │ │
+        │  └───────────┬────────────┘ │
+        │              ↓               │
+        │  ┌────────────────────────┐ │
+        │  │  DLT Pipelines          │ │
+        │  │  (Bronze/Silver/Gold)  │ │
+        │  └───────────┬────────────┘ │
+        │              ↓               │
+        │  ┌────────────────────────┐ │
+        │  │  Spark Clusters         │ │
+        │  │  Auto-scaling (2-20)    │ │
+        │  └────────────────────────┘ │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │      Delta Lake (S3)         │
+        │  ┌────────────────────────┐ │
+        │  │  Bronze: Partitioned   │ │
+        │  │  by year/month/day/hour │ │
+        │  └───────────┬────────────┘ │
+        │              ↓               │
+        │  ┌────────────────────────┐ │
+        │  │  Silver: Quality       │ │
+        │  │  checked, deduplicated  │ │
+        │  └───────────┬────────────┘ │
+        │              ↓               │
+        │  ┌────────────────────────┐ │
+        │  │  Gold: Aggregated     │ │
+        │  │  Business-ready        │ │
+        │  └────────────────────────┘ │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │      Analytics Layer         │
+        │  ┌──────────┐  ┌──────────┐ │
+        │  │ BI Tools │  │ ML Models│ │
+        │  └──────────┘  └──────────┘ │
+        └──────────────────────────────┘
+```
+
+**Component Details**:
+
+**1. Ingestion**:
+```python
+# Batch from S3 (hourly)
+@dlt.table(name="bronze_sales_batch")
+def bronze_sales_batch():
+    return spark.read.format("json") \
+        .load("s3://raw/sales/hourly/") \
+        .withColumn("source", lit("s3"))
+
+# Streaming from Kafka
+@dlt.table(name="bronze_sales_stream")
+def bronze_sales_stream():
+    return spark.readStream.format("kafka") \
+        .option("subscribe", "sales") \
+        .load() \
+        .select(from_json(col("value").cast("string"), schema).alias("data")) \
+        .select("data.*") \
+        .withColumn("source", lit("kafka"))
+```
+
+**2. Processing**:
+```python
+# Silver: Cleaned
+@dlt.table(name="silver_sales")
+@dlt.expect("valid_amount", "amount > 0")
+@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
+def silver_sales():
+    batch = dlt.read("bronze_sales_batch")
+    stream = dlt.read_stream("bronze_sales_stream")
+    return batch.union(stream) \
+        .withColumn("year", year("sale_date")) \
+        .withColumn("month", month("sale_date")) \
+        .withColumn("day", dayofmonth("sale_date"))
+```
+
+**3. Storage Strategy**:
+```python
+# Partition by date for efficient queries
+sales_df.write.format("delta") \
+    .partitionBy("year", "month", "day") \
+    .save("/mnt/delta/silver/sales")
+```
+
+**4. Optimization Schedule**:
+```python
+# Daily OPTIMIZE (compact files)
+spark.sql("OPTIMIZE delta.`/mnt/delta/silver/sales`")
+
+# Weekly VACUUM (clean old files)
+spark.sql("VACUUM delta.`/mnt/delta/silver/sales` RETAIN 7 DAYS")
+
+# Enable Liquid Clustering
+spark.sql("ALTER TABLE sales CLUSTER BY (customer_id, sale_date)")
+```
+
+**5. Scalability**:
+- **Auto-scaling**: 2-20 workers based on load
+- **Partitioning**: By date (year/month/day)
+- **Optimization**: Daily OPTIMIZE, weekly VACUUM
+- **Monitoring**: DLT dashboard, query performance
+
+**6. Cost Optimization**:
+- Job clusters (terminate after job)
+- Auto-scaling (scale down when idle)
+- Efficient partitioning (reduce scans)
+- Regular optimization (reduce storage)
+
+**Key Design Decisions**:
+- ✅ Medallion architecture (Bronze/Silver/Gold)
+- ✅ Partitioning by date (efficient queries)
+- ✅ Auto-scaling clusters (handle variable load)
+- ✅ Unity Catalog (governance)
+- ✅ Daily optimization (performance)
+
+---
+
+#### 17.3 Design Pattern: Lambda Architecture (Batch + Streaming)
+
+**What is Lambda Architecture?**
+Process same data with both batch and streaming pipelines, then merge results.
+
+**Architecture**:
+```
+Data Source (Kafka)
+    ├── Batch Path (Spark)
+    │   └── Process historical data
+    └── Streaming Path (Spark Streaming)
+        └── Process real-time data
+    ↓
+Merge Results
+    ↓
+Unified View
+```
+
+**Implementation**:
+```python
+# Batch path (processes all data daily)
+@dlt.table(name="batch_sales_summary")
+def batch_sales_summary():
+    return spark.read.format("delta").load("/mnt/delta/bronze/sales") \
+        .groupBy("sale_date") \
+        .agg(sum("amount").alias("daily_revenue"))
+
+# Streaming path (processes new data in real-time)
+@dlt.table(name="streaming_sales_summary")
+def streaming_sales_summary():
+    return spark.readStream.format("kafka") \
+        .option("subscribe", "sales") \
+        .load() \
+        .groupBy(window("timestamp", "1 day"), "sale_date") \
+        .agg(sum("amount").alias("daily_revenue"))
+
+# Merge (unified view)
+@dlt.table(name="unified_sales_summary")
+def unified_sales_summary():
+    batch = dlt.read("batch_sales_summary")
+    stream = dlt.read_stream("streaming_sales_summary")
+    return batch.union(stream)
+```
+
+**When to Use**:
+- ✅ Need both historical and real-time views
+- ✅ Different processing logic for batch vs stream
+- ✅ High accuracy requirements
+
+---
+
+#### 17.4 Design Pattern: Kappa Architecture (Streaming-Only)
+
+**What is Kappa Architecture?**
+Single streaming pipeline handles both real-time and historical data.
+
+**Architecture**:
+```
+Data Source (Kafka)
+    ↓
+Single Streaming Pipeline
+    ↓
+Unified Results
+```
+
+**Implementation**:
+```python
+# Single streaming pipeline
+@dlt.table(name="sales_summary")
+def sales_summary():
+    return spark.readStream.format("kafka") \
+        .option("subscribe", "sales") \
+        .option("startingOffsets", "earliest")  # Process all data
+        .load() \
+        .groupBy(window("timestamp", "1 day")) \
+        .agg(sum("amount").alias("daily_revenue"))
+```
+
+**When to Use**:
+- ✅ Simple use case
+- ✅ Same logic for batch and stream
+- ✅ Lower complexity
+
+---
+
+#### 17.5 Design Decisions & Trade-offs
+
+**Decision 1: DLT vs Spark**
+
+| Aspect | DLT | Spark |
+|--------|-----|-------|
+| **Development Speed** | Fast | Slower |
+| **Data Quality** | Built-in | Manual |
+| **Flexibility** | Limited | High |
+| **Maintenance** | Low | High |
+| **Use Case** | Standard pipelines | Custom logic |
+
+**Decision 2: Delta vs Parquet**
+
+| Aspect | Delta | Parquet |
+|--------|-------|---------|
+| **Updates** | Yes | No |
+| **ACID** | Yes | No |
+| **Performance** | Excellent | Excellent |
+| **Cost** | Higher | Lower |
+| **Use Case** | Data lakehouse | Append-only |
+
+**Decision 3: Unity Catalog vs Hive**
+
+| Aspect | Unity Catalog | Hive |
+|--------|---------------|------|
+| **Multi-cloud** | Yes | No |
+| **Security** | Advanced | Basic |
+| **Future** | Active | Legacy |
+| **Use Case** | New projects | Legacy systems |
+
+---
+
+### 18. Troubleshooting Common Issues
+
+**Why This Section?**
+Real-world problems require real-world solutions. Master these to handle production issues confidently.
+
+---
+
+#### 18.1 Slow Query Performance
+
+**Symptoms**:
+- Query takes > 5 minutes (used to be 30 seconds)
+- High CPU usage
+- Timeout errors
+- Spark UI shows long-running tasks
+
+**Debugging Steps**:
+
+**Step 1: Check Execution Plan**:
+```python
+# See what Spark is doing
+spark.sql("EXPLAIN SELECT * FROM sales WHERE date = '2024-01-15'").show(truncate=False)
+```
+
+**Look for**:
+- `Scan Delta` with high file count (bad!)
+- `PartitionFilters` (good - partition pruning)
+- `PushedFilters` (good - filter pushdown)
+
+**Step 2: Check File Count**:
+```python
+# Check table details
+spark.sql("DESCRIBE DETAIL delta.`/mnt/delta/sales`").show()
+
+# Check number of files
+# Good: < 100 files per partition
+# Bad: > 1000 files per partition
+```
+
+**Step 3: Check Partition Pruning**:
+```python
+# Verify query uses partitions
+spark.sql("SHOW PARTITIONS sales").show()
+
+# Check if filter uses partition column
+# Good: WHERE date = '2024-01-15' (date is partition)
+# Bad: WHERE customer_id = 101 (not partitioned)
+```
+
+**Step 4: Check Data Skew**:
+```python
+# Check data distribution
+spark.sql("""
+    SELECT date, COUNT(*) as row_count, COUNT(DISTINCT customer_id) as customers
+    FROM sales
+    GROUP BY date
+    ORDER BY row_count DESC
+""").show()
+```
+
+**Solutions**:
+
+**Solution 1: Run OPTIMIZE** (Most Common Fix):
+```sql
+-- Compact small files
+OPTIMIZE delta.`/mnt/delta/sales`;
+
+-- With Z-ORDER for better clustering
+OPTIMIZE delta.`/mnt/delta/sales` ZORDER BY (customer_id, date);
+```
+
+**Solution 2: Enable Liquid Clustering**:
+```sql
+-- Better than Z-ORDER (automatic)
+ALTER TABLE sales CLUSTER BY (customer_id, date);
+```
+
+**Solution 3: Increase Cluster Size**:
+```python
+# More workers = faster
+cluster_config = {
+    "num_workers": 10,  # Was 2
+    "node_type_id": "i3.xlarge"
+}
+```
+
+**Solution 4: Fix Partitioning**:
+```python
+# Repartition if needed
+df.repartition("date").write.format("delta").mode("overwrite").save("/mnt/delta/sales")
+```
+
+**Real-World Example**:
+
+**Problem**: Query slow after many small appends
+
+**Before**:
+```python
+# 10,000 small files (1MB each)
+spark.sql("SELECT * FROM sales WHERE date = '2024-01-15'")
+# Time: 5 minutes
+```
+
+**After OPTIMIZE**:
+```sql
+OPTIMIZE delta.`/mnt/delta/sales`;
+-- Result: 100 files (128MB each)
+```
+
+**After Query**:
+```python
+spark.sql("SELECT * FROM sales WHERE date = '2024-01-15'")
+# Time: 30 seconds ✅
+```
+
+---
+
+#### 18.2 Out of Memory (OOM) Errors
+
+**Symptoms**:
+- `java.lang.OutOfMemoryError: Java heap space`
+- `java.lang.OutOfMemoryError: Unable to acquire X bytes of memory`
+- Job fails with memory errors
+- Spark UI shows high memory usage
+
+**Common Causes**:
+1. Too much data in single partition
+2. Data skew (one partition huge)
+3. Insufficient cluster memory
+4. Broadcasting large table
+5. Collecting too much data to driver
+
+**Solutions**:
+
+**Solution 1: Increase Executor Memory**:
+```python
+spark = SparkSession.builder \
+    .config("spark.executor.memory", "16g") \
+    .config("spark.executor.memoryFraction", "0.8") \
+    .getOrCreate()
+```
+
+**Solution 2: Fix Data Skew**:
+```python
+# Add salt to skewed column
+df.withColumn("salt", (rand() * 100).cast("int")) \
+    .repartition(200, "customer_id", "salt")
+```
+
+**Solution 3: Avoid Broadcasting Large Tables**:
+```python
+# Bad: Broadcasting 10M row table
+large_table = spark.table("large_table")  # 10M rows
+df.join(broadcast(large_table), "id")  # OOM!
+
+# Good: Regular join
+df.join(large_table, "id")
+```
+
+**Solution 4: Repartition**:
+```python
+# Increase partitions to reduce data per partition
+df.repartition(200)  # Was 50 partitions
+```
+
+**Solution 5: Avoid Collecting to Driver**:
+```python
+# Bad: Collecting 1M rows to driver
+results = df.collect()  # OOM!
+
+# Good: Write to storage
+df.write.format("delta").save("/mnt/delta/results")
+```
+
+**Real-World Example**:
+
+**Problem**: OOM error when joining sales with customers
+
+**Before**:
+```python
+# Broadcasting 10M row customer table
+customers = spark.table("customers")  # 10M rows
+sales.join(broadcast(customers), "customer_id")  # OOM!
+```
+
+**After**:
+```python
+# Regular join (Spark handles it)
+sales.join(customers, "customer_id")  # Works! ✅
+```
+
+---
+
+#### 18.3 DLT Pipeline Failures
+
+**Symptoms**:
+- Pipeline fails repeatedly
+- Data quality violations
+- Timeout errors
+- "Expectation failed" errors
+
+**Debugging**:
+
+**Step 1: Check DLT Logs**:
+```python
+# View pipeline run history
+# In Databricks UI: Workflows → Your Pipeline → Runs
+```
+
+**Step 2: Check Data Quality Metrics**:
+```python
+# View expectation violations
+# In Databricks UI: Data Quality tab
+```
+
+**Step 3: Check Source Data**:
+```python
+# Verify source data quality
+bronze = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+bronze.filter(col("amount") < 0).count()  # Check for violations
+```
+
+**Solutions**:
+
+**Solution 1: Adjust Expectations**:
+```python
+# Too strict? Relax expectations
+@dlt.expect("valid_amount", "amount > 0")  # Was: amount > 100
+```
+
+**Solution 2: Use expect_or_drop**:
+```python
+# Drop bad records instead of failing
+@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
+```
+
+**Solution 3: Add Error Handling**:
+```python
+@dlt.table(name="silver_sales")
+def silver_sales():
+    try:
+        return dlt.read("bronze_sales").filter(col("amount") > 0)
+    except Exception as e:
+        # Log error, return empty DataFrame
+        print(f"Error: {e}")
+        return spark.createDataFrame([], schema)
+```
+
+**Solution 4: Increase Timeout**:
+```python
+# In workflow configuration
+{
+    "timeout_seconds": 3600  # Was 1800
+}
+```
+
+---
+
+#### 18.4 Delta Table Corruption
+
+**Symptoms**:
+- Can't read table
+- `DeltaTableException: Table not found`
+- Transaction log errors
+- Missing files
+
+**Solutions**:
+
+**Solution 1: Use FSCK to Repair**:
+```python
+# Check and repair table
+spark.sql("REPAIR TABLE sales")
+```
+
+**Solution 2: Restore from Backup**:
+```python
+# Restore to previous version
+spark.sql("RESTORE TABLE sales TO VERSION AS OF 10")
+```
+
+**Solution 3: Recreate Table**:
+```python
+# Last resort: Recreate from source
+source_data = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+source_data.write.format("delta").mode("overwrite").save("/mnt/delta/silver/sales")
+```
+
+**Prevention**:
+- ✅ Never delete `_delta_log/` directory
+- ✅ Use VACUUM carefully (check retention)
+- ✅ Backup important tables
+- ✅ Monitor table health
+
+---
+
+#### 18.5 Streaming Checkpoint Issues
+
+**Symptoms**:
+- Duplicate records
+- Lost data
+- Can't resume stream
+- Checkpoint errors
+
+**Solutions**:
+
+**Solution 1: Never Delete Checkpoint Directory**:
+```python
+# ⚠️ NEVER DO THIS:
+# dbutils.fs.rm("/mnt/delta/checkpoints/sales", True)
+
+# If deleted, stream restarts from beginning (duplicates!)
+```
+
+**Solution 2: Use Idempotent Writes**:
+```python
+# Use MERGE instead of INSERT
+delta_table.alias("target").merge(
+    stream_df.alias("source"),
+    "target.id = source.id"
+).whenNotMatchedInsertAll().execute()
+```
+
+**Solution 3: Monitor Checkpoint Health**:
+```python
+# Check checkpoint directory
+dbutils.fs.ls("/mnt/delta/checkpoints/sales")
+```
+
+**Solution 4: Handle Checkpoint Corruption**:
+```python
+# If checkpoint corrupted, start from specific offset
+stream_df = spark.readStream \
+    .format("kafka") \
+    .option("startingOffsets", "{\"sales\":{\"0\":12345}}") \
+    .load()
+```
+
+---
+
+#### 18.6 Cost Issues
+
+**Symptoms**:
+- Unexpected high costs
+- Cluster running 24/7
+- Too many small files (storage cost)
+- Inefficient queries
+
+**Solutions**:
+
+**Solution 1: Enable Autotermination**:
+```python
+cluster_config = {
+    "autotermination_minutes": 30  # Auto-terminate idle clusters
+}
+```
+
+**Solution 2: Use Job Clusters**:
+```python
+# Job clusters terminate after job (cost-effective)
+job_cluster = {
+    "new_cluster": {
+        "autotermination_minutes": 0  # Terminate immediately
+    }
+}
+```
+
+**Solution 3: Optimize Delta Tables**:
+```sql
+-- Reduce storage costs
+OPTIMIZE delta.`/mnt/delta/sales`;
+VACUUM delta.`/mnt/delta/sales` RETAIN 7 DAYS;
+```
+
+**Solution 4: Monitor Costs**:
+```python
+# Use Databricks SQL to query usage
+# Track cluster hours, storage, compute
+```
+
+**Solution 5: Right-Size Clusters**:
+```python
+# Don't over-provision
+cluster_config = {
+    "num_workers": 2,  # Start small, scale up if needed
+    "node_type_id": "i3.xlarge"  # Right size
+}
+```
+
+---
+
+### 19. Hands-On Exercises
+
+**Why This Section?**
+Practice makes perfect! These exercises help you apply what you've learned.
+
+---
+
+#### Exercise 1: Build Your First Delta Table
+
+**Objective**: Create a Delta table from raw JSON data.
+
+**Given**:
+- Raw data: `s3://nike-raw/sales/2024-01-15.json`
+- Schema: `sale_id`, `customer_id`, `amount`, `sale_date`
+
+**Task**:
+1. Read JSON data
+2. Write as Delta table
+3. Query the table
+4. Check table history
+
+**Solution**:
+```python
+# Step 1: Read JSON
+raw_sales = spark.read.format("json").load("s3://nike-raw/sales/2024-01-15.json")
+
+# Step 2: Write as Delta
+raw_sales.write.format("delta").save("/mnt/delta/bronze/sales")
+
+# Step 3: Query
+sales = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+sales.show()
+
+# Step 4: Check history
+spark.sql("DESCRIBE HISTORY delta.`/mnt/delta/bronze/sales`").show()
+```
+
+---
+
+#### Exercise 2: Create a DLT Pipeline
+
+**Objective**: Build Bronze → Silver → Gold pipeline with data quality checks.
+
+**Given**:
+- Bronze table: `bronze_sales` (already exists)
+- Requirements:
+  - Silver: Clean data (amount > 0, customer_id not null)
+  - Gold: Daily aggregates (sum of amount by date)
+
+**Task**:
+1. Create Silver table with quality checks
+2. Create Gold table with aggregates
+3. Test with sample data
+
+**Solution**:
+```python
+import dlt
+from pyspark.sql.functions import *
+
+# Silver: Cleaned
+@dlt.table(name="silver_sales")
+@dlt.expect("valid_amount", "amount > 0")
+@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
+def silver_sales():
+    return dlt.read("bronze_sales") \
+        .withColumn("ingestion_time", current_timestamp())
+
+# Gold: Aggregated
+@dlt.table(name="gold_daily_sales")
+def gold_daily_sales():
+    return dlt.read("silver_sales") \
+        .groupBy("sale_date") \
+        .agg(
+            sum("amount").alias("daily_revenue"),
+            count("*").alias("transaction_count")
+        )
+```
+
+---
+
+#### Exercise 3: Optimize a Slow Query
+
+**Objective**: Optimize a query that takes 5 minutes.
+
+**Given**:
+- Query: `SELECT * FROM sales WHERE customer_id = 101 AND date = '2024-01-15'`
+- Problem: Takes 5 minutes, scans 10,000 files
+
+**Task**:
+1. Identify the problem
+2. Apply optimization
+3. Verify improvement
+
+**Solution**:
+```python
+# Step 1: Check file count
+spark.sql("DESCRIBE DETAIL delta.`/mnt/delta/sales`").show()
+# Result: 10,000 files (problem!)
+
+# Step 2: Run OPTIMIZE
+spark.sql("OPTIMIZE delta.`/mnt/delta/sales` ZORDER BY (customer_id, date)")
+
+# Step 3: Verify
+spark.sql("SELECT * FROM sales WHERE customer_id = 101 AND date = '2024-01-15'")
+# Result: 30 seconds ✅
+```
+
+---
+
+#### Exercise 4: Design a Pipeline
+
+**Objective**: Design architecture for 100GB/day pipeline.
+
+**Given**:
+- Volume: 100GB/day
+- Sources: S3 (batch), Kafka (streaming)
+- Requirements: Bronze/Silver/Gold layers
+
+**Task**:
+1. Design architecture
+2. Choose components
+3. Implement pipeline
+
+**Solution**:
+```python
+# Architecture: Medallion (Bronze/Silver/Gold)
+
+# Bronze: Raw ingestion
+@dlt.table(name="bronze_sales")
+def bronze_sales():
+    batch = spark.read.format("json").load("s3://raw/sales/")
+    stream = spark.readStream.format("kafka") \
+        .option("subscribe", "sales").load()
+    return batch.union(stream)
+
+# Silver: Cleaned
+@dlt.table(name="silver_sales")
+@dlt.expect("valid_amount", "amount > 0")
+def silver_sales():
+    return dlt.read("bronze_sales")
+
+# Gold: Aggregated
+@dlt.table(name="gold_daily_sales")
+def gold_daily_sales():
+    return dlt.read("silver_sales") \
+        .groupBy("sale_date") \
+        .agg(sum("amount").alias("daily_revenue"))
+```
+
+---
+
+### 20. Edge Cases & Advanced Scenarios
+
+**Why This Section?**
+Real-world scenarios that test your deep understanding.
+
+---
+
+#### 20.1 Handling Schema Evolution
+
+**Scenario**: Your sales data now includes a new `discount_code` field, but old records don't have it.
+
+**Solution**:
+```python
+# Enable schema evolution
+new_sales_df.write.format("delta") \
+    .mode("append") \
+    .option("mergeSchema", "true") \
+    .save("/mnt/delta/sales")
+
+# Result:
+# - Old records: discount_code = NULL
+# - New records: discount_code = "SAVE10"
+```
+
+**Best Practice**:
+- ✅ Always enable `mergeSchema` for evolving schemas
+- ✅ Use nullable columns for new fields
+- ✅ Monitor schema changes
+
+---
+
+#### 20.2 Migrating from Hive to Unity Catalog
+
+**Scenario**: You have 100 tables in Hive Metastore. How do you migrate to Unity Catalog?
+
+**Solution**:
+```python
+# Step 1: List all Hive tables
+hive_tables = spark.sql("SHOW TABLES IN default").collect()
+
+# Step 2: Register each in Unity Catalog
+for table in hive_tables:
+    table_name = table.tableName
+    location = spark.sql(f"DESCRIBE FORMATTED {table_name}") \
+        .filter(col("col_name") == "Location") \
+        .select("data_type").collect()[0][0]
+    
+    # Register in Unity Catalog
+    spark.sql(f"""
+        CREATE TABLE nike_prod.sales.{table_name}
+        USING DELTA
+        LOCATION '{location}'
+    """)
+```
+
+**Best Practice**:
+- ✅ Migrate incrementally (test with few tables first)
+- ✅ Update code to use new catalog paths
+- ✅ Keep Hive tables until migration verified
+
+---
+
+#### 20.3 Multi-Region Deployment
+
+**Scenario**: Your data is in US, but you need to serve users in EU. How do you handle this?
+
+**Solution**:
+```python
+# Option 1: Delta Sharing (read-only)
+# Share US data with EU workspace
+CREATE SHARE nike_sales_share;
+ALTER SHARE nike_sales_share ADD TABLE nike_prod.sales.raw_sales;
+
+# EU workspace accesses via Delta Sharing
+CREATE CATALOG eu_nike USING DELTASHARING LOCATION '...';
+SELECT * FROM eu_nike.nike_sales_share.raw_sales;
+
+# Option 2: Replicate data (write to both regions)
+# US: Primary write
+sales_df.write.format("delta").save("s3://us-bucket/sales")
+
+# EU: Replicate (async)
+sales_df.write.format("delta").save("s3://eu-bucket/sales")
+```
+
+**Best Practice**:
+- ✅ Use Delta Sharing for read-only cross-region
+- ✅ Replicate for write access in multiple regions
+- ✅ Consider latency and cost
+
+---
+
+#### 20.4 Disaster Recovery
+
+**Scenario**: Your Delta table is corrupted. How do you recover?
+
+**Solution**:
+```python
+# Step 1: Check if recoverable
+spark.sql("REPAIR TABLE sales")
+
+# Step 2: If not, restore from backup
+spark.sql("RESTORE TABLE sales TO VERSION AS OF 10")
+
+# Step 3: If no backup, recreate from source
+source = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+source.write.format("delta").mode("overwrite").save("/mnt/delta/silver/sales")
+```
+
+**Best Practice**:
+- ✅ Regular backups (copy `_delta_log/` directory)
+- ✅ Test restore procedures
+- ✅ Monitor table health
+
+---
+
+#### 20.5 Handling Large Schema Changes
+
+**Scenario**: You need to rename 50 columns in a 1TB table. How do you do it?
+
+**Solution**:
+```python
+# Option 1: Use ALTER TABLE (if supported)
+spark.sql("ALTER TABLE sales RENAME COLUMN old_name TO new_name")
+
+# Option 2: Recreate table (for large changes)
+# Step 1: Read with new schema
+new_schema_df = spark.read.format("delta").load("/mnt/delta/sales") \
+    .withColumnRenamed("old_name", "new_name")
+
+# Step 2: Write to new location
+new_schema_df.write.format("delta").save("/mnt/delta/sales_v2")
+
+# Step 3: Swap tables
+spark.sql("DROP TABLE sales")
+spark.sql("ALTER TABLE sales_v2 RENAME TO sales")
+```
+
+**Best Practice**:
+- ✅ Test schema changes on sample data first
+- ✅ Use versioning for large changes
+- ✅ Plan downtime if needed
 
 ---
 
