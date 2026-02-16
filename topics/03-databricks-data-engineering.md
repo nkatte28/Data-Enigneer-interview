@@ -30,6 +30,44 @@ Databricks is a unified analytics platform built on Apache Spark, designed for d
 - **DBFS**: Databricks File System (distributed file system)
 - **Unity Catalog**: Centralized data governance
 
+#### 1.1 Cluster Types
+
+**Two Types of Clusters**:
+
+**1. All-Purpose Clusters**:
+- ✅ For interactive development (notebooks)
+- ✅ Shared by multiple users
+- ✅ Stays running until manually terminated
+- ✅ Use for: Development, ad-hoc queries, exploration
+
+**Example**:
+```python
+# Create all-purpose cluster (via UI or API)
+# Good for: Interactive notebooks, development
+```
+
+**2. Job Clusters**:
+- ✅ For scheduled/automated jobs
+- ✅ Single-user (one job at a time)
+- ✅ Terminates automatically after job completes
+- ✅ Use for: Production pipelines, scheduled jobs
+
+**Example**:
+```json
+{
+  "new_cluster": {
+    "spark_version": "13.3.x-scala2.12",
+    "node_type_id": "i3.xlarge",
+    "num_workers": 2,
+    "autotermination_minutes": 0  // Terminates after job
+  }
+}
+```
+
+**When to Use Each**:
+- **All-Purpose**: Development, testing, exploration
+- **Job Clusters**: Production workflows, scheduled jobs (cost-effective!)
+
 **Nike Store Example - Architecture**:
 ```
 Data Sources (S3, Kafka, Databases)
@@ -47,137 +85,41 @@ Analytics (BI Tools, ML Models)
 
 ---
 
-### 2. Databricks Workflows
+### 2. Understanding Your Data: Sample Raw Data
 
-**Workflow**: A sequence of tasks that run together (like a DAG in Airflow).
+**Before we start coding, let's see what we're working with!**
 
-#### 2.1 Creating a Workflow
-
-**Nike Store Example - Sales Pipeline Workflow**:
-
-```python
-# Workflow: Daily Sales Processing
-# Tasks:
-# 1. Ingest raw sales data from S3
-# 2. Clean and validate data
-# 3. Transform to Silver layer
-# 4. Aggregate to Gold layer
-# 5. Send alerts if errors
-
-from pyspark.sql import SparkSession
-from pyspark.sql.functions import *
-
-# Task 1: Ingest Raw Data
-def ingest_raw_sales():
-    spark = SparkSession.builder.appName("IngestSales").getOrCreate()
-    
-    raw_sales = spark.read.format("json").load("s3://nike-raw/sales/")
-    raw_sales.write.format("delta").mode("append").save("/mnt/delta/bronze/sales")
-    
-    return raw_sales.count()
-
-# Task 2: Clean Data
-def clean_sales_data():
-    spark = SparkSession.builder.appName("CleanSales").getOrCreate()
-    
-    bronze = spark.read.format("delta").load("/mnt/delta/bronze/sales")
-    
-    cleaned = bronze.filter(
-        col("sale_id").isNotNull() &
-        col("customer_id").isNotNull() &
-        col("amount") > 0
-    )
-    
-    cleaned.write.format("delta").mode("overwrite").save("/mnt/delta/silver/sales")
-    
-    return cleaned.count()
-
-# Task 3: Transform to Gold
-def create_gold_aggregates():
-    spark = SparkSession.builder.appName("GoldAggregates").getOrCreate()
-    
-    silver = spark.read.format("delta").load("/mnt/delta/silver/sales")
-    
-    gold = silver.groupBy("date", "customer_id", "product_id") \
-        .agg(
-            sum("amount").alias("total_revenue"),
-            sum("quantity").alias("total_quantity"),
-            count("*").alias("transaction_count")
-        )
-    
-    gold.write.format("delta").mode("overwrite").save("/mnt/delta/gold/sales_summary")
-    
-    return gold.count()
-```
-
-#### 2.2 Workflow Configuration (JSON)
-
+**Sample Raw Sales Data (JSON from S3)**:
 ```json
 {
-  "name": "Daily Sales Pipeline",
-  "email_notifications": {
-    "on_success": ["team@nike.com"],
-    "on_failure": ["alerts@nike.com"]
-  },
-  "tasks": [
-    {
-      "task_key": "ingest_raw_sales",
-      "spark_python_task": {
-        "python_file": "dbfs:/scripts/ingest_sales.py",
-        "parameters": ["--date", "{{yesterday}}"]
-      },
-      "libraries": [{"pypi": {"package": "boto3"}}],
-      "new_cluster": {
-        "spark_version": "13.3.x-scala2.12",
-        "node_type_id": "i3.xlarge",
-        "num_workers": 2
-      }
-    },
-    {
-      "task_key": "clean_sales_data",
-      "depends_on": [{"task_key": "ingest_raw_sales"}],
-      "spark_python_task": {
-        "python_file": "dbfs:/scripts/clean_sales.py"
-      },
-      "existing_cluster_id": "cluster-123"
-    },
-    {
-      "task_key": "create_gold_aggregates",
-      "depends_on": [{"task_key": "clean_sales_data"}],
-      "spark_sql_task": {
-        "sql_file": "dbfs:/scripts/gold_aggregates.sql",
-        "warehouse_id": "warehouse-456"
-      }
-    }
-  ],
-  "schedule": {
-    "quartz_cron_expression": "0 0 2 * * ?",
-    "timezone_id": "America/New_York"
-  },
-  "max_concurrent_runs": 1
+  "sale_id": "SALE-001",
+  "customer_id": 101,
+  "product_id": 501,
+  "product_name": "Air Max 270",
+  "amount": 150.00,
+  "quantity": 2,
+  "sale_date": "2024-01-15T10:30:00Z",
+  "store_id": 1,
+  "discount": 0.0
 }
 ```
 
-#### 2.3 Workflow Best Practices
+**Sample Raw Customer Data**:
+```json
+{
+  "customer_id": 101,
+  "name": "Sarah Johnson",
+  "email": "sarah.johnson@email.com",
+  "phone": "555-1234",
+  "city": "New York",
+  "registration_date": "2020-01-15"
+}
+```
 
-**1. Task Dependencies**:
-- Use `depends_on` to create execution order
-- Parallelize independent tasks
-
-**2. Error Handling**:
-- Set retry policies
-- Configure email alerts
-- Use try-catch in code
-
-**3. Resource Management**:
-- Reuse clusters when possible
-- Use job clusters for one-time jobs
-- Set appropriate cluster sizes
-
-**4. Monitoring**:
-- Check workflow run history
-- Monitor task durations
-- Set up alerts for failures
+**What We're Trying to Achieve**:
+1. Ingest raw data → Bronze layer (as-is)
+2. Clean and validate → Silver layer (quality checked)
+3. Aggregate and enrich → Gold layer (business-ready)
 
 ---
 
@@ -194,176 +136,265 @@ def create_gold_aggregates():
 - ✅ **Upserts**: Update and insert in one operation
 - ✅ **Optimization**: Z-order, compaction, partitioning
 
-**Nike Store Example - Why Delta Lake?**
+**Why Delta Lake? - Real Example**:
 
 **Problem with Parquet**:
 ```python
 # Parquet: Can't update, no transactions
 sales.write.format("parquet").mode("overwrite").save("/data/sales")
-# If job fails halfway, data is corrupted!
+# If job fails halfway, data is corrupted! ❌
 ```
 
 **Solution with Delta Lake**:
 ```python
 # Delta: ACID transactions, can update
 sales.write.format("delta").mode("overwrite").save("/mnt/delta/sales")
-# If job fails, previous version is intact!
+# If job fails, previous version is intact! ✅
 ```
 
-#### 3.2 Creating Delta Tables
+#### 3.2 Creating Delta Tables - Step by Step
 
-**Method 1: Write as Delta Format**
+**What We're Doing**: Convert raw JSON data into a Delta table.
+
+**Sample Raw Data** (from S3 `s3://nike-raw/sales/2024-01-15.json`):
+```json
+[
+  {"sale_id": "SALE-001", "customer_id": 101, "product_id": 501, "amount": 150.00, "sale_date": "2024-01-15"},
+  {"sale_id": "SALE-002", "customer_id": 102, "product_id": 502, "amount": 200.00, "sale_date": "2024-01-15"}
+]
+```
+
+**Step 1: Read Raw Data**:
 ```python
 from pyspark.sql import SparkSession
 
 spark = SparkSession.builder.appName("DeltaExample").getOrCreate()
 
-# Create Delta table from DataFrame
-sales_df = spark.read.json("s3://nike-raw/sales/")
+# Read JSON from S3
+raw_sales = spark.read.format("json").load("s3://nike-raw/sales/")
+raw_sales.show()
+```
 
-sales_df.write.format("delta") \
+**Output**:
+```
++----------+-----------+----------+------+----------+
+|sale_id   |customer_id|product_id|amount|sale_date |
++----------+-----------+----------+------+----------+
+|SALE-001  |101        |501       |150.00|2024-01-15|
+|SALE-002  |102        |502       |200.00|2024-01-15|
++----------+-----------+----------+------+----------+
+```
+
+**Step 2: Write as Delta Table**:
+```python
+# Write to Delta Lake (Bronze layer)
+raw_sales.write.format("delta") \
     .mode("overwrite") \
-    .option("overwriteSchema", "true") \
     .save("/mnt/delta/bronze/sales")
 
-# Read Delta table
+# Read back from Delta
 sales = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+sales.show()
 ```
 
-**Method 2: Create Delta Table (SQL)**
-```sql
--- Create Delta table
-CREATE TABLE IF NOT EXISTS bronze.sales
-USING DELTA
-LOCATION '/mnt/delta/bronze/sales'
-AS
-SELECT * FROM json.`s3://nike-raw/sales/`;
+**What Happened?**
+- ✅ Data written to `/mnt/delta/bronze/sales/`
+- ✅ Transaction log created (`_delta_log/`)
+- ✅ Can now update, delete, time travel!
 
--- Or create empty table with schema
-CREATE TABLE bronze.sales (
-    sale_id BIGINT,
-    customer_id BIGINT,
-    product_id BIGINT,
-    amount DECIMAL(10,2),
-    sale_date TIMESTAMP
-) USING DELTA
-LOCATION '/mnt/delta/bronze/sales';
-```
+#### 3.3 Delta Lake Operations with Examples
 
-**Method 3: Convert Existing Parquet to Delta**
+**Operation 1: Insert (Append New Data)**
+
+**What We're Doing**: Add new sales records without overwriting existing data.
+
+**New Data to Add**:
 ```python
-# Convert Parquet table to Delta
-spark.sql("""
-    CONVERT TO DELTA parquet.`/mnt/data/sales`
-""")
+new_sales = spark.createDataFrame([
+    ("SALE-003", 103, 503, 120.00, "2024-01-16"),
+    ("SALE-004", 101, 501, 150.00, "2024-01-16")
+], ["sale_id", "customer_id", "product_id", "amount", "sale_date"])
+
+# Append to existing Delta table
+new_sales.write.format("delta") \
+    .mode("append") \
+    .save("/mnt/delta/bronze/sales")
+
+# Verify: Should have 4 records now
+spark.read.format("delta").load("/mnt/delta/bronze/sales").count()
+# Output: 4
 ```
 
-#### 3.3 Delta Lake Operations
+**Operation 2: Update Existing Records**
 
-**Insert**:
-```python
-# Append new data
-new_sales.write.format("delta").mode("append").save("/mnt/delta/bronze/sales")
+**What We're Doing**: Fix a mistake - customer 101 got a 10% discount we forgot to apply.
+
+**Before Update**:
+```
++----------+-----------+----------+------+
+|sale_id   |customer_id|amount   |
++----------+-----------+----------+
+|SALE-001  |101        |150.00   |  ← Need to apply 10% discount
+|SALE-004  |101        |150.00   |  ← Need to apply 10% discount
++----------+-----------+----------+
 ```
 
-**Update**:
+**Update Code**:
 ```python
 from delta.tables import DeltaTable
 
 delta_table = DeltaTable.forPath(spark, "/mnt/delta/bronze/sales")
 
-# Update records
+# Update: Apply 10% discount to customer 101
 delta_table.update(
     condition="customer_id = 101",
-    set={"amount": "amount * 1.1"}  # 10% discount
+    set={"amount": "amount * 0.9"}  # 10% discount
 )
+
+# Verify
+spark.read.format("delta").load("/mnt/delta/bronze/sales") \
+    .filter("customer_id = 101").show()
 ```
 
-**Upsert (Merge)**:
+**After Update**:
+```
++----------+-----------+----------+
+|sale_id   |customer_id|amount   |
++----------+-----------+----------+
+|SALE-001  |101        |135.00   |  ← Updated!
+|SALE-004  |101        |135.00   |  ← Updated!
++----------+-----------+----------+
+```
+
+**Operation 3: Upsert (Merge) - Most Important!**
+
+**What We're Doing**: Update existing records if they exist, insert if they don't.
+
+**Scenario**: We receive updated sales data. Some sales already exist (update), some are new (insert).
+
+**Existing Data**:
+```
+sale_id   | customer_id | amount
+SALE-001  | 101         | 135.00
+SALE-002  | 102         | 200.00
+```
+
+**New/Updated Data**:
+```python
+updates_df = spark.createDataFrame([
+    ("SALE-001", 101, 140.00),  # Updated amount
+    ("SALE-003", 103, 120.00)   # New sale
+], ["sale_id", "customer_id", "amount"])
+```
+
+**Merge Code**:
 ```python
 from delta.tables import DeltaTable
-from pyspark.sql.functions import *
 
 delta_table = DeltaTable.forPath(spark, "/mnt/delta/bronze/sales")
 
-# Merge new data with existing
+# Merge: Update if exists, insert if new
 delta_table.alias("target").merge(
     updates_df.alias("source"),
-    "target.sale_id = source.sale_id"
-).whenMatchedUpdateAll() \
- .whenNotMatchedInsertAll() \
+    "target.sale_id = source.sale_id"  # Match on sale_id
+).whenMatchedUpdateAll() \    # If match found → update
+ .whenNotMatchedInsertAll() \  # If no match → insert
  .execute()
 ```
 
-**Delete**:
+**Result**:
+```
+sale_id   | customer_id | amount
+SALE-001  | 101         | 140.00  ← Updated!
+SALE-002  | 102         | 200.00  ← Unchanged
+SALE-003  | 103         | 120.00  ← Inserted!
+```
+
+**Operation 4: Delete**
+
+**What We're Doing**: Remove old sales data (older than 2 years).
+
 ```python
-delta_table.delete("sale_date < '2024-01-01'")  # Delete old records
+# Delete sales older than 2 years
+delta_table.delete("sale_date < '2022-01-01'")
 ```
 
 ---
 
 ### 4. Delta Lake Advanced Features
 
-#### 4.1 Time Travel
+#### 4.1 Time Travel - See Your Data History
 
-**What is Time Travel?**
-Query historical versions of your data.
+**What We're Doing**: Query what your data looked like at any point in time.
 
-**Nike Store Example**:
+**Real Scenario**: Yesterday, someone accidentally updated all sales amounts. Today, you need to see what the data looked like before that mistake.
 
+**Step 1: Check History**:
 ```python
-# Read current version
-current_sales = spark.read.format("delta").load("/mnt/delta/bronze/sales")
-
-# Read version 5 (historical)
-version_5 = spark.read.format("delta") \
-    .option("versionAsOf", 5) \
-    .load("/mnt/delta/bronze/sales")
-
-# Read timestamp (as of specific time)
-as_of_time = spark.read.format("delta") \
-    .option("timestampAsOf", "2024-01-15 10:00:00") \
-    .load("/mnt/delta/bronze/sales")
+# See all versions of the table
+spark.sql("DESCRIBE HISTORY delta.`/mnt/delta/bronze/sales`").show()
 ```
 
-**SQL Time Travel**:
-```sql
--- Query version 5
-SELECT * FROM delta.`/mnt/delta/bronze/sales` VERSION AS OF 5;
-
--- Query as of timestamp
-SELECT * FROM delta.`/mnt/delta/bronze/sales` TIMESTAMP AS OF '2024-01-15 10:00:00';
-
--- See history
-DESCRIBE HISTORY delta.`/mnt/delta/bronze/sales`;
+**Output**:
+```
++-------+-------------------+--------+--------+------------------+
+|version|timestamp          |operation|operationMetrics|
++-------+-------------------+--------+--------+------------------+
+|5      |2024-01-16 10:00:00|UPDATE  |{"numUpdatedRows":100}|
+|4      |2024-01-15 15:00:00|MERGE   |{"numInsertedRows":50}|
+|3      |2024-01-15 10:00:00|DELETE  |{"numDeletedRows":10}|
+|2      |2024-01-14 10:00:00|APPEND  |{"numFiles":5}|
+|1      |2024-01-13 10:00:00|CREATE TABLE|{"numFiles":1}|
++-------+-------------------+--------+--------+------------------+
 ```
 
-**Use Cases**:
-- ✅ Audit: "What did the data look like yesterday?"
-- ✅ Rollback: Restore to previous version
-- ✅ Reproduce: Run same query on historical data
-- ✅ Debug: Compare current vs historical
-
-**Example - Restore Previous Version**:
+**Step 2: Query Historical Version**:
 ```python
-# Restore to version 10
+# Read version 3 (before the UPDATE mistake)
+version_3 = spark.read.format("delta") \
+    .option("versionAsOf", 3) \
+    .load("/mnt/delta/bronze/sales")
+
+# Compare current vs version 3
+current = spark.read.format("delta").load("/mnt/delta/bronze/sales")
+print(f"Current total: ${current.agg(sum('amount')).collect()[0][0]}")
+print(f"Version 3 total: ${version_3.agg(sum('amount')).collect()[0][0]}")
+```
+
+**Step 3: Restore Previous Version** (if needed):
+```python
+# Restore to version 3
 spark.sql("""
-    RESTORE TABLE delta.`/mnt/delta/bronze/sales` TO VERSION AS OF 10
+    RESTORE TABLE delta.`/mnt/delta/bronze/sales` TO VERSION AS OF 3
 """)
 ```
 
-#### 4.2 VACUUM
+**Use Cases**:
+- ✅ **Audit**: "What did sales look like last week?"
+- ✅ **Debug**: "Why did this calculation change?"
+- ✅ **Rollback**: "Undo that bad update"
 
-**What is VACUUM?**
-Removes old files that are no longer needed (after retention period).
+#### 4.2 VACUUM - Clean Up Old Files
+
+**What We're Doing**: Remove old files that are no longer needed to save storage costs.
 
 **Why VACUUM?**
-- Saves storage costs
-- Improves performance (fewer files to scan)
-- Cleans up deleted/updated data files
+- When you UPDATE or DELETE, Delta keeps old files for time travel
+- After retention period, these files are safe to delete
+- Saves storage costs!
 
-**Nike Store Example**:
+**Example**:
 
+**Before VACUUM**:
+```
+/mnt/delta/bronze/sales/
+├── part-00000.parquet  (current data)
+├── part-00001.parquet  (old, deleted data - 10 days old)
+├── part-00002.parquet  (old, deleted data - 8 days old)
+└── _delta_log/
+```
+
+**VACUUM Code**:
 ```python
 from delta.tables import DeltaTable
 
@@ -372,7 +403,7 @@ delta_table = DeltaTable.forPath(spark, "/mnt/delta/bronze/sales")
 # VACUUM files older than 7 days (default retention)
 delta_table.vacuum()
 
-# VACUUM with custom retention (hours)
+# Or with custom retention (hours)
 delta_table.vacuum(168)  # 7 days = 168 hours
 ```
 
@@ -381,41 +412,45 @@ delta_table.vacuum(168)  # 7 days = 168 hours
 -- VACUUM files older than retention period
 VACUUM delta.`/mnt/delta/bronze/sales`;
 
--- VACUUM with custom retention (hours)
-VACUUM delta.`/mnt/delta/bronze/sales` RETAIN 168 HOURS;
-
--- Dry run (see what would be deleted)
+-- Dry run first (see what would be deleted)
 VACUUM delta.`/mnt/delta/bronze/sales` DRY RUN;
 ```
 
-**Important Notes**:
-- ⚠️ Default retention: 7 days (168 hours)
-- ⚠️ Can't time travel beyond retention period after VACUUM
-- ⚠️ Use `DRY RUN` first to see what will be deleted
+**After VACUUM**:
+```
+/mnt/delta/bronze/sales/
+├── part-00000.parquet  (current data only)
+└── _delta_log/
+```
 
-**Best Practices**:
-- Run VACUUM regularly (weekly/monthly)
-- Set appropriate retention based on time travel needs
-- Monitor storage savings
+**⚠️ Important**:
+- Default retention: 7 days (168 hours)
+- Can't time travel beyond retention period after VACUUM
+- Always use `DRY RUN` first!
 
-#### 4.3 OPTIMIZE
+#### 4.3 OPTIMIZE - Make Queries Faster
 
-**What is OPTIMIZE?**
-Compacts small files into larger files for better performance.
+**What We're Doing**: Compact many small files into fewer large files for better performance.
 
-**Why OPTIMIZE?**
-- Faster queries (fewer files to read)
-- Better compression
-- Improved performance
+**Problem**: After many small writes, you have thousands of tiny files:
+```
+/mnt/delta/bronze/sales/
+├── part-00000.parquet  (1 MB)
+├── part-00001.parquet  (1 MB)
+├── part-00002.parquet  (1 MB)
+... (1000 files!)
+```
 
-**Nike Store Example**:
+**Why This is Bad**:
+- Slow queries (reading 1000 files is slow)
+- More metadata overhead
+- Poor compression
 
+**Solution: OPTIMIZE**:
 ```python
 from delta.tables import DeltaTable
 
 delta_table = DeltaTable.forPath(spark, "/mnt/delta/bronze/sales")
-
-# Optimize table (compact files)
 delta_table.optimize().execute()
 ```
 
@@ -424,97 +459,130 @@ delta_table.optimize().execute()
 -- Optimize entire table
 OPTIMIZE delta.`/mnt/delta/bronze/sales`;
 
--- Optimize specific partition
+-- Optimize specific partition (faster!)
 OPTIMIZE delta.`/mnt/delta/bronze/sales`
-WHERE date = '2024-01-15';
+WHERE sale_date = '2024-01-15';
 ```
 
-**Z-ORDER (Multi-dimensional Clustering)**:
-```sql
--- Z-ORDER on multiple columns (for better query performance)
-OPTIMIZE delta.`/mnt/delta/bronze/sales`
-ZORDER BY (customer_id, product_id, date);
+**After OPTIMIZE**:
+```
+/mnt/delta/bronze/sales/
+├── part-00000.parquet  (128 MB)  ← Compacted!
+├── part-00001.parquet  (128 MB)
+├── part-00002.parquet  (128 MB)
+... (only 10 files now!)
 ```
 
-**What Z-ORDER Does**:
-- Co-locates related data in same files
-- Improves filter performance
-- Best for columns used in WHERE clauses
-
-**Example - Z-ORDER Benefits**:
+**Table Properties** (Advanced):
 ```sql
--- Before Z-ORDER: Scans all files
-SELECT * FROM sales WHERE customer_id = 101 AND date = '2024-01-15';
--- Scans: 1000 files
+-- Set table properties for optimization
+ALTER TABLE delta.`/mnt/delta/bronze/sales` 
+SET TBLPROPERTIES (
+    'delta.autoOptimize.optimizeWrite' = 'true',
+    'delta.autoOptimize.autoCompact' = 'true',
+    'delta.deletedFileRetentionDuration' = 'interval 7 days'
+);
 
--- After Z-ORDER: Scans only relevant files
-SELECT * FROM sales WHERE customer_id = 101 AND date = '2024-01-15';
--- Scans: 10 files (90% reduction!)
+-- Auto-optimize writes (compact small files automatically)
+-- Auto-compact: Merge small files during writes
+-- Retention: How long to keep deleted files for time travel
+```
+
+**Performance Improvement**:
+- Before: Query scans 1000 files → 30 seconds
+- After: Query scans 10 files → 3 seconds ✅
+
+**Z-ORDER: Multi-Dimensional Clustering**
+
+**What We're Doing**: Organize data so related rows are in the same files.
+
+**Example**: If you often query by `customer_id` and `sale_date`, Z-ORDER helps!
+
+**Before Z-ORDER**:
+```sql
+-- Query: Get sales for customer 101 on 2024-01-15
+SELECT * FROM sales 
+WHERE customer_id = 101 AND sale_date = '2024-01-15';
+-- Scans: 1000 files (slow!)
+```
+
+**Z-ORDER Code**:
+```sql
+-- Z-ORDER on columns you filter by
+OPTIMIZE delta.`/mnt/delta/bronze/sales`
+ZORDER BY (customer_id, sale_date);
+```
+
+**After Z-ORDER**:
+```sql
+-- Same query
+SELECT * FROM sales 
+WHERE customer_id = 101 AND sale_date = '2024-01-15';
+-- Scans: 10 files (90% reduction!) ✅
 ```
 
 **Best Practices**:
-- Run OPTIMIZE after large writes
-- Use Z-ORDER on frequently filtered columns
-- Don't Z-ORDER too many columns (2-3 is optimal)
-- Schedule OPTIMIZE regularly (daily/weekly)
+- ✅ Run OPTIMIZE after large writes
+- ✅ Use Z-ORDER on 2-3 frequently filtered columns
+- ✅ Don't Z-ORDER too many columns (diminishing returns)
+- ✅ Schedule OPTIMIZE daily/weekly
 
-#### 4.4 Delta Lake Schema Evolution
+#### 4.4 Schema Evolution - Add Columns Safely
 
-**What is Schema Evolution?**
-Add columns without breaking existing data.
+**What We're Doing**: Add new columns to existing Delta table without breaking existing data.
 
-**Nike Store Example**:
+**Scenario**: Your sales data now includes a `discount_amount` field, but old records don't have it.
 
+**Original Data**:
 ```python
 # Original schema
 sales_df = spark.createDataFrame([
     (1, 101, 501, 150.00, "2024-01-15")
-], ["sale_id", "customer_id", "product_id", "amount", "date"])
+], ["sale_id", "customer_id", "product_id", "amount", "sale_date"])
 
 sales_df.write.format("delta").save("/mnt/delta/bronze/sales")
+```
 
-# Add new column (discount_amount)
+**New Data with Extra Column**:
+```python
+# New data has discount_amount
 new_sales_df = spark.createDataFrame([
     (2, 102, 502, 200.00, "2024-01-16", 20.00)  # Added discount_amount
-], ["sale_id", "customer_id", "product_id", "amount", "date", "discount_amount"])
+], ["sale_id", "customer_id", "product_id", "amount", "sale_date", "discount_amount"])
+```
 
-# Merge schema automatically
+**Merge Schema**:
+```python
+# Allow schema evolution
 new_sales_df.write.format("delta") \
     .mode("append") \
     .option("mergeSchema", "true") \
     .save("/mnt/delta/bronze/sales")
 
-# Old records have NULL for discount_amount
-# New records have discount_amount value
-```
-
-**Schema Evolution Modes**:
-```python
-# Allow schema evolution
-.option("mergeSchema", "true")
-
-# Overwrite schema (drops old columns)
-.option("overwriteSchema", "true")
+# Result:
+# - Old records: discount_amount = NULL
+# - New records: discount_amount = 20.00
 ```
 
 ---
 
-### 5. Delta Live Tables (DLT)
+### 5. Delta Live Tables (DLT) - Declarative Pipelines
 
 **What is DLT?**
-Declarative framework for building reliable data pipelines with automatic testing and monitoring.
+A declarative framework for building reliable data pipelines. You define **what** you want, DLT handles **how**.
 
-#### 5.1 DLT Concepts
+#### 5.1 Your First DLT Pipeline
 
-**Key Features**:
-- ✅ Declarative: Define what you want, not how
-- ✅ Automatic testing: Data quality checks built-in
-- ✅ Monitoring: Built-in observability
-- ✅ Incremental processing: Only process new/changed data
-- ✅ Dependency management: Automatic DAG creation
+**What We're Building**: A simple Bronze → Silver → Gold pipeline.
 
-**Nike Store Example - DLT Pipeline**:
+**Sample Raw Data** (from S3):
+```json
+{"sale_id": "SALE-001", "customer_id": 101, "amount": 150.00, "sale_date": "2024-01-15"}
+{"sale_id": "SALE-002", "customer_id": null, "amount": -50.00, "sale_date": "2024-01-15"}  ← Bad data!
+{"sale_id": "SALE-003", "customer_id": 103, "amount": 200.00, "sale_date": "2024-01-15"}
+```
 
+**DLT Pipeline**:
 ```python
 import dlt
 from pyspark.sql.functions import *
@@ -522,118 +590,177 @@ from pyspark.sql.functions import *
 # Bronze Layer: Raw data ingestion
 @dlt.table(
     name="bronze_sales",
-    comment="Raw sales data from S3"
+    comment="Raw sales data from S3 - as-is"
 )
 def bronze_sales():
-    return spark.readStream.format("cloudFiles") \
-        .option("cloudFiles.format", "json") \
-        .option("cloudFiles.schemaLocation", "/mnt/delta/checkpoints/bronze_sales") \
-        .load("s3://nike-raw/sales/")
+    return spark.read.format("json").load("s3://nike-raw/sales/")
 
-# Silver Layer: Cleaned and validated data
+# Silver Layer: Cleaned and validated
 @dlt.table(
     name="silver_sales",
     comment="Cleaned sales data with quality checks"
 )
-@dlt.expect("valid_sale_id", "sale_id IS NOT NULL")
-@dlt.expect("valid_amount", "amount > 0")
-@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
+@dlt.expect("valid_sale_id", "sale_id IS NOT NULL")      # Must have sale_id
+@dlt.expect("valid_amount", "amount > 0")                # Amount must be positive
+@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")  # Drop if no customer
 def silver_sales():
     return dlt.read("bronze_sales") \
         .filter(col("sale_date").isNotNull()) \
-        .withColumn("ingestion_timestamp", current_timestamp()) \
-        .select(
-            col("sale_id"),
-            col("customer_id"),
-            col("product_id"),
-            col("amount"),
-            col("quantity"),
-            to_date(col("sale_date")).alias("sale_date"),
-            col("ingestion_timestamp")
-        )
+        .withColumn("ingestion_timestamp", current_timestamp())
 
-# Gold Layer: Aggregated data
+# Gold Layer: Aggregated
 @dlt.table(
     name="gold_daily_sales_summary",
-    comment="Daily sales aggregates by customer and product"
+    comment="Daily sales aggregates"
 )
 def gold_daily_sales_summary():
     return dlt.read("silver_sales") \
-        .groupBy("sale_date", "customer_id", "product_id") \
+        .groupBy("sale_date", "customer_id") \
         .agg(
-            sum("amount").alias("total_revenue"),
-            sum("quantity").alias("total_quantity"),
-            count("*").alias("transaction_count"),
-            max("ingestion_timestamp").alias("last_updated")
+            sum("amount").alias("daily_revenue"),
+            count("*").alias("transaction_count")
         )
 ```
 
-#### 5.2 DLT Expectations (Data Quality)
+**What Happens**:
+1. **Bronze**: Ingests all 3 records (including bad one)
+2. **Silver**: 
+   - `SALE-001` ✅ Passes all checks
+   - `SALE-002` ❌ Dropped (null customer_id, negative amount)
+   - `SALE-003` ✅ Passes all checks
+3. **Gold**: Aggregates the 2 good records
 
-**Expectation Types**:
-
-```python
-# Expect: Record violation but continue
-@dlt.expect("valid_amount", "amount > 0")
-
-# Expect or Drop: Drop records that fail
-@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
-
-# Expect or Fail: Fail pipeline if violation
-@dlt.expect_or_fail("critical_check", "sale_id IS NOT NULL")
+**Result**:
+```
+gold_daily_sales_summary:
+sale_date  | customer_id | daily_revenue | transaction_count
+2024-01-15 | 101         | 150.00        | 1
+2024-01-15 | 103         | 200.00        | 1
 ```
 
-**Nike Store Example - Quality Checks**:
+#### 5.2 DLT Expectations Explained
 
+**Three Types of Expectations**:
+
+**1. `@dlt.expect`** - Record violation, continue:
+```python
+@dlt.expect("valid_amount", "amount > 0")
+# If violation: Recorded in metrics, pipeline continues
+```
+
+**2. `@dlt.expect_or_drop`** - Drop bad records:
+```python
+@dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
+# If violation: Record dropped, pipeline continues
+```
+
+**3. `@dlt.expect_or_fail`** - Fail pipeline:
+```python
+@dlt.expect_or_fail("critical_check", "sale_id IS NOT NULL")
+# If violation: Pipeline fails, stops processing
+```
+
+**Real Example**:
 ```python
 @dlt.table(name="silver_sales")
-@dlt.expect("positive_amount", "amount > 0")
-@dlt.expect("valid_date", "sale_date >= '2020-01-01'")
-@dlt.expect_or_drop("valid_customer_id", "customer_id BETWEEN 1 AND 1000000")
-@dlt.expect_or_fail("no_duplicates", "sale_id IS NOT NULL")
+@dlt.expect("positive_amount", "amount > 0")                    # Warn if negative
+@dlt.expect("valid_date", "sale_date >= '2020-01-01'")          # Warn if old date
+@dlt.expect_or_drop("valid_customer_id", "customer_id BETWEEN 1 AND 1000000")  # Drop invalid IDs
+@dlt.expect_or_fail("no_duplicates", "sale_id IS NOT NULL")     # Fail if duplicate
 def silver_sales():
     return dlt.read("bronze_sales")
 ```
 
 #### 5.3 DLT Incremental Processing
 
-**Incremental Tables**:
+**What We're Doing**: Only process new/changed data, not everything.
+
+**Scenario**: Daily sales pipeline. Yesterday processed 1M records. Today only 10K new records arrived.
+
+**Without Incremental** (Slow):
 ```python
-@dlt.table(
-    name="silver_sales_incremental",
-    table_properties={
-        "pipelines.autoOptimize.managed": "true"
-    }
-)
-def silver_sales_incremental():
-    return dlt.read_stream("bronze_sales") \
-        .filter(col("sale_date") >= current_date() - 7)  # Last 7 days
+# Processes ALL 1,010,000 records every day!
+@dlt.table(name="silver_sales")
+def silver_sales():
+    return dlt.read("bronze_sales")  # Reads everything!
 ```
 
-**Incremental with Watermarks**:
+**With Incremental** (Fast):
 ```python
-@dlt.table(name="silver_sales_streaming")
-def silver_sales_streaming():
+# Only processes new records!
+@dlt.table(name="silver_sales")
+def silver_sales():
     return dlt.read_stream("bronze_sales") \
-        .withWatermark("sale_timestamp", "1 hour") \
-        .groupBy(
-            window(col("sale_timestamp"), "1 hour"),
-            col("customer_id")
-        ) \
-        .agg(sum("amount").alias("hourly_revenue"))
+        .filter(col("sale_date") >= current_date() - 1)  # Only last 24 hours
+```
+
+**Benefits**:
+- ✅ 100x faster (processes 10K vs 1M records)
+- ✅ Lower costs
+- ✅ Faster updates
+
+#### 5.4 Error Handling in DLT Pipelines
+
+**What We're Doing**: Handle failures gracefully so pipelines don't crash.
+
+**Pattern 1: Try-Catch in Functions**:
+```python
+import dlt
+from pyspark.sql.functions import *
+
+@dlt.table(name="silver_sales")
+def silver_sales():
+    try:
+        bronze = dlt.read("bronze_sales")
+        cleaned = bronze.filter(col("amount") > 0)
+        return cleaned
+    except Exception as e:
+        # Log error
+        print(f"Error processing sales: {str(e)}")
+        # Return empty DataFrame or raise
+        raise
+```
+
+**Pattern 2: Dead Letter Queue**:
+```python
+@dlt.table(name="silver_sales")
+@dlt.expect_or_drop("valid_amount", "amount > 0")
+def silver_sales():
+    return dlt.read("bronze_sales")
+
+# Bad records are automatically dropped by DLT
+# You can query dropped records from DLT metrics
+```
+
+**Pattern 3: Retry Logic**:
+```python
+# In workflow configuration (JSON)
+{
+  "task_key": "silver_sales",
+  "retry_on_timeout": true,
+  "max_retries": 3,
+  "min_retry_interval_millis": 60000
+}
 ```
 
 ---
 
-### 6. Spark Structured Streaming
+### 6. Spark Structured Streaming - Real-Time Processing
 
 **What is Structured Streaming?**
-Real-time data processing with Spark SQL engine.
+Process data in real-time as it arrives (like Kafka streams).
 
-#### 6.1 Basic Streaming
+#### 6.1 Your First Streaming Pipeline
 
-**Nike Store Example - Stream from Kafka**:
+**What We're Building**: Read sales events from Kafka and write to Delta Lake in real-time.
 
+**Sample Kafka Messages**:
+```json
+{"sale_id": "SALE-001", "customer_id": 101, "amount": 150.00, "timestamp": "2024-01-15T10:30:00Z"}
+{"sale_id": "SALE-002", "customer_id": 102, "amount": 200.00, "timestamp": "2024-01-15T10:31:00Z"}
+```
+
+**Streaming Code**:
 ```python
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
@@ -641,6 +768,15 @@ from pyspark.sql.functions import *
 spark = SparkSession.builder \
     .appName("SalesStreaming") \
     .getOrCreate()
+
+# Define schema
+from pyspark.sql.types import *
+sales_schema = StructType([
+    StructField("sale_id", StringType()),
+    StructField("customer_id", IntegerType()),
+    StructField("amount", DoubleType()),
+    StructField("timestamp", TimestampType())
+])
 
 # Read stream from Kafka
 stream_df = spark.readStream \
@@ -655,7 +791,7 @@ sales_stream = stream_df.select(
     from_json(col("value").cast("string"), sales_schema).alias("data")
 ).select("data.*")
 
-# Write to Delta Lake
+# Write to Delta Lake (streaming)
 query = sales_stream.writeStream \
     .format("delta") \
     .outputMode("append") \
@@ -666,38 +802,84 @@ query = sales_stream.writeStream \
 query.awaitTermination()
 ```
 
-#### 6.2 Streaming Output Modes
+**What Happens**:
+- Every 10 seconds, reads new messages from Kafka
+- Parses JSON
+- Writes to Delta Lake
+- Checkpoint tracks progress (so if it crashes, resumes where it left off)
 
-**Append Mode** (Default):
+**Understanding Checkpoints**:
+- Checkpoint saves: Current Kafka offset, processing state, metadata
+- If stream crashes: Resumes from last checkpoint (no duplicates!)
+- ⚠️ Never delete checkpoint directory! If deleted, stream restarts from beginning
+- Location: `/mnt/delta/checkpoints/sales_stream`
+
+#### 6.2 Understanding Checkpoints
+
+**What is a Checkpoint?**
+A checkpoint saves the current position in the stream so you can resume after a failure.
+
+**Why Checkpoints Matter**:
+```
+Without checkpoint:
+- Stream crashes at message 1000
+- Restarts → processes messages 1-1000 again (duplicates!)
+
+With checkpoint:
+- Stream crashes at message 1000
+- Checkpoint saved position: message 1000
+- Restarts → processes from message 1001 (no duplicates!)
+```
+
+**Checkpoint Location**:
 ```python
-# Only new rows added
+.option("checkpointLocation", "/mnt/delta/checkpoints/sales_stream")
+```
+
+**What's Stored**:
+- Current offset in Kafka
+- Processing state
+- Metadata
+
+**⚠️ Important**: Never delete checkpoint directory! If deleted, stream will restart from beginning.
+
+#### 6.3 Output Modes Explained
+
+**Three Output Modes**:
+
+**1. Append Mode** (Default):
+```python
 .writeStream.outputMode("append")
 ```
+- Only new rows added
+- Use for: Simple writes, no aggregations
 
-**Complete Mode**:
+**2. Complete Mode**:
 ```python
-# Entire result table written (for aggregations)
 .writeStream.outputMode("complete")
 ```
+- Entire result table rewritten
+- Use for: Aggregations (e.g., hourly totals)
 
-**Update Mode**:
+**3. Update Mode**:
 ```python
-# Only updated rows written
 .writeStream.outputMode("update")
 ```
+- Only updated rows written
+- Use for: Aggregations where you update existing rows
 
-**Nike Store Example - Aggregations**:
-
+**Example - Hourly Aggregations**:
 ```python
-# Hourly sales aggregation
+# Aggregate sales by hour
 hourly_sales = sales_stream \
-    .withWatermark("sale_timestamp", "1 hour") \
+    .withWatermark("timestamp", "1 hour") \
     .groupBy(
-        window(col("sale_timestamp"), "1 hour"),
+        window(col("timestamp"), "1 hour"),
         col("customer_id")
     ) \
     .agg(sum("amount").alias("hourly_revenue"))
 
+# Use UPDATE mode (updates existing hour windows)
 hourly_sales.writeStream \
     .format("delta") \
     .outputMode("update") \
@@ -705,34 +887,49 @@ hourly_sales.writeStream \
     .start("/mnt/delta/silver/hourly_sales")
 ```
 
-#### 6.3 Watermarks
+#### 6.4 Watermarks - Handling Late Data
 
-**What are Watermarks?**
-Threshold for handling late-arriving data.
+**What is a Watermark?**
+A threshold for accepting late-arriving data.
 
-**Nike Store Example**:
+**Scenario**: Sales events arrive late (network delay, retries).
 
+**Example**:
+```
+Current time: 10:00 AM
+Watermark: 1 hour
+Accepts data: 9:00 AM - 10:00 AM
+Rejects data: Before 9:00 AM (too late!)
+```
+
+**Code**:
 ```python
-# Watermark: Data up to 1 hour late is accepted
 sales_stream \
-    .withWatermark("sale_timestamp", "1 hour") \
-    .groupBy(window("sale_timestamp", "1 hour")) \
+    .withWatermark("timestamp", "1 hour") \
+    .groupBy(window("timestamp", "1 hour")) \
     .agg(sum("amount").alias("hourly_revenue"))
 ```
 
-**How Watermarks Work**:
+**How It Works**:
 - Tracks maximum event time seen
-- Late data within watermark is processed
-- Data older than watermark is dropped
+- Late data within watermark → processed ✅
+- Data older than watermark → dropped ❌
 
 ---
 
-### 7. Delta Live Tables with Structured Streaming
+### 7. Delta Live Tables + Structured Streaming
 
 **Combining DLT + Streaming**:
 
-**Nike Store Example**:
+**What We're Building**: Real-time pipeline with automatic quality checks.
 
+**Sample Kafka Stream**:
+```json
+{"sale_id": "SALE-001", "customer_id": 101, "amount": 150.00, "timestamp": "2024-01-15T10:30:00Z"}
+{"sale_id": "SALE-002", "customer_id": null, "amount": -50.00, "timestamp": "2024-01-15T10:31:00Z"}  ← Bad!
+```
+
+**DLT + Streaming Pipeline**:
 ```python
 import dlt
 from pyspark.sql.functions import *
@@ -762,7 +959,7 @@ def bronze_sales_stream():
 @dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
 def silver_sales_stream():
     return dlt.read_stream("bronze_sales_stream") \
-        .withWatermark("sale_timestamp", "1 hour") \
+        .withWatermark("timestamp", "1 hour") \
         .withColumn("ingestion_time", current_timestamp())
 
 # Aggregated Gold layer (streaming)
@@ -773,13 +970,11 @@ def silver_sales_stream():
 def gold_hourly_sales():
     return dlt.read_stream("silver_sales_stream") \
         .groupBy(
-            window(col("sale_timestamp"), "1 hour"),
-            col("customer_id"),
-            col("product_id")
+            window(col("timestamp"), "1 hour"),
+            col("customer_id")
         ) \
         .agg(
             sum("amount").alias("hourly_revenue"),
-            sum("quantity").alias("hourly_quantity"),
             count("*").alias("transaction_count")
         )
 ```
@@ -792,37 +987,45 @@ def gold_hourly_sales():
 
 ---
 
-### 8. Unity Catalog
+### 8. Unity Catalog - Data Governance
 
 **What is Unity Catalog?**
-Centralized data governance for data and AI assets.
+Centralized data governance for all your data assets.
 
-#### 8.1 Unity Catalog Concepts
+#### 8.1 Three-Level Namespace
 
-**Three-Level Namespace**:
+**Structure**:
 ```
 catalog.schema.table
 ```
 
-**Example**:
+**Nike Store Example**:
 ```
-nike_prod.sales.raw_sales
-nike_prod.sales.cleaned_sales
-nike_prod.analytics.daily_summary
+nike_prod.sales.raw_sales          ← Production sales data
+nike_prod.sales.cleaned_sales      ← Cleaned sales data
+nike_prod.analytics.daily_summary ← Analytics aggregates
+nike_dev.sales.test_sales          ← Development/test data
 ```
+
+**Why This Matters**:
+- ✅ Clear organization
+- ✅ Easy permissions
+- ✅ Separate prod/dev environments
 
 #### 8.2 Creating Catalogs and Schemas
 
+**Step-by-Step**:
+
 ```sql
--- Create catalog
+-- Step 1: Create catalog
 CREATE CATALOG IF NOT EXISTS nike_prod
 COMMENT 'Nike production data catalog';
 
--- Create schema
+-- Step 2: Create schema
 CREATE SCHEMA IF NOT EXISTS nike_prod.sales
 COMMENT 'Sales data schema';
 
--- Create table
+-- Step 3: Create table
 CREATE TABLE nike_prod.sales.raw_sales (
     sale_id BIGINT,
     customer_id BIGINT,
@@ -832,7 +1035,12 @@ CREATE TABLE nike_prod.sales.raw_sales (
 LOCATION '/mnt/delta/bronze/sales';
 ```
 
-#### 8.3 Unity Catalog Permissions
+**Now Query**:
+```sql
+SELECT * FROM nike_prod.sales.raw_sales;
+```
+
+#### 8.3 Permissions - Who Can Access What
 
 **Grant Permissions**:
 ```sql
@@ -851,35 +1059,23 @@ GRANT USE CATALOG ON CATALOG nike_prod TO `readers@nike.com`;
 REVOKE SELECT ON TABLE nike_prod.sales.raw_sales FROM `analysts@nike.com`;
 ```
 
-#### 8.4 External Tables
-
-**Register External Data**:
-```sql
--- Register S3 location as external table
-CREATE TABLE nike_prod.sales.external_sales
-USING DELTA
-LOCATION 's3://nike-data/sales/';
-
--- Register Snowflake table
-CREATE TABLE nike_prod.sales.snowflake_sales
-USING SNOWFLAKE
-OPTIONS (
-    'sfURL' 'nike.snowflakecomputing.com',
-    'sfDatabase' 'PRODUCTION',
-    'sfSchema' 'SALES',
-    'sfWarehouse' 'COMPUTE_WH',
-    'sfTable' 'SALES'
-);
-```
-
 ---
 
 ### 9. Reading from Different Sources
 
 #### 9.1 Snowflake
 
-**Read from Snowflake**:
+**What We're Doing**: Read data from Snowflake and write to Delta Lake.
 
+**Sample Snowflake Table** (`PRODUCTION.SALES.SALES`):
+```
+SALE_ID | CUSTOMER_ID | AMOUNT | SALE_DATE
+--------|-------------|--------|-----------
+1       | 101         | 150.00 | 2024-01-15
+2       | 102         | 200.00 | 2024-01-15
+```
+
+**Read from Snowflake**:
 ```python
 # Using Spark connector
 snowflake_df = spark.read \
@@ -890,14 +1086,14 @@ snowflake_df = spark.read \
     .option("sfDatabase", "PRODUCTION") \
     .option("sfSchema", "SALES") \
     .option("sfWarehouse", "COMPUTE_WH") \
-    .option("query", "SELECT * FROM SALES WHERE DATE >= '2024-01-01'") \
+    .option("query", "SELECT * FROM SALES WHERE SALE_DATE >= '2024-01-01'") \
     .load()
 
 # Write to Delta Lake
 snowflake_df.write.format("delta").save("/mnt/delta/bronze/snowflake_sales")
 ```
 
-**Using Unity Catalog**:
+**Using Unity Catalog** (Better!):
 ```sql
 -- Create external table pointing to Snowflake
 CREATE TABLE nike_prod.sales.snowflake_sales
@@ -916,7 +1112,6 @@ SELECT * FROM nike_prod.sales.snowflake_sales;
 #### 9.2 Apache Iceberg
 
 **Read from Iceberg**:
-
 ```python
 # Read Iceberg table
 iceberg_df = spark.read \
@@ -929,7 +1124,6 @@ iceberg_df.write.format("delta").save("/mnt/delta/bronze/iceberg_sales")
 
 **Using Unity Catalog**:
 ```sql
--- Register Iceberg table
 CREATE TABLE nike_prod.sales.iceberg_sales
 USING ICEBERG
 LOCATION 's3://nike-data/iceberg/sales/';
@@ -958,22 +1152,13 @@ mongo_df = spark.read \
     .load()
 ```
 
-**Redshift**:
-```python
-redshift_df = spark.read \
-    .format("io.github.spark_redshift_community.spark.redshift") \
-    .option("url", "jdbc:redshift://cluster.region.redshift.amazonaws.com:5439/db") \
-    .option("dbtable", "sales") \
-    .option("tempdir", "s3://temp-bucket/") \
-    .option("aws_iam_role", "arn:aws:iam::123:role/RedshiftRole") \
-    .load()
-```
-
 ---
 
 ### 10. Spark Job Optimization
 
-#### 10.1 Performance Tuning
+#### 10.1 Performance Tuning - Key Configs
+
+**What We're Doing**: Make Spark jobs run faster.
 
 **Key Configuration Parameters**:
 
@@ -988,22 +1173,32 @@ spark = SparkSession.builder \
     .getOrCreate()
 ```
 
-**Important Configs**:
+**What Each Config Does**:
 - `spark.sql.shuffle.partitions`: Number of partitions after shuffle (default: 200)
-- `spark.sql.adaptive.enabled`: Enable adaptive query execution
+- `spark.sql.adaptive.enabled`: Enable adaptive query execution (auto-tunes)
 - `spark.sql.files.maxPartitionBytes`: Max bytes per partition (128MB default)
 - `spark.serializer`: Use Kryo for better performance
 
-#### 10.2 Handling Skew
+#### 10.2 Handling Data Skew
 
 **What is Skew?**
 Uneven data distribution across partitions.
 
-**Nike Store Example - Skewed Customer Data**:
+**Problem Example**:
+```
+Partition 1: 10,000 rows (customer_id = 101)  ← Hot partition!
+Partition 2: 100 rows
+Partition 3: 100 rows
+... (most partitions have 100 rows)
+```
 
+**Why This is Bad**:
+- One partition takes forever (bottleneck)
+- Other partitions finish quickly
+- Overall job is slow
+
+**Solution 1: Salting**:
 ```python
-# Problem: Some customers have millions of transactions
-# Solution 1: Salting
 from pyspark.sql.functions import *
 
 # Add random salt to customer_id
@@ -1014,30 +1209,26 @@ result = salted_df.groupBy("customer_id", "salt") \
     .agg(sum("amount").alias("total")) \
     .groupBy("customer_id") \
     .agg(sum("total").alias("grand_total"))
+```
 
-# Solution 2: Broadcast small tables
+**Solution 2: Broadcast Small Tables**:
+```python
 from pyspark.sql.functions import broadcast
 
 # Broadcast customer dimension (small table)
-customer_dim = spark.table("dim_customer")
+customer_dim = spark.table("dim_customer")  # 10K rows
 sales_df.join(broadcast(customer_dim), "customer_id")
-
-# Solution 3: Increase partitions for skewed keys
-spark.conf.set("spark.sql.adaptive.skewJoin.enabled", "true")
-spark.conf.set("spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes", "256MB")
 ```
 
-**Detecting Skew**:
+**Solution 3: Enable Skew Join**:
 ```python
-# Check partition sizes
-sales_df.rdd.glom().map(len).collect()
-# If sizes vary greatly, you have skew
+spark.conf.set("spark.sql.adaptive.skewJoin.enabled", "true")
+spark.conf.set("spark.sql.adaptive.skewJoin.skewedPartitionThresholdInBytes", "256MB")
 ```
 
 #### 10.3 Memory Optimization
 
 **Memory Configuration**:
-
 ```python
 spark = SparkSession.builder \
     .config("spark.executor.memory", "8g") \
@@ -1047,13 +1238,12 @@ spark = SparkSession.builder \
     .getOrCreate()
 ```
 
-**Memory Best Practices**:
-- ✅ Cache only when needed: `df.cache()` or `df.persist()`
+**Best Practices**:
+- ✅ Cache only when needed: `df.cache()`
 - ✅ Unpersist when done: `df.unpersist()`
-- ✅ Use appropriate storage levels: `MEMORY_ONLY`, `MEMORY_AND_DISK`
-- ✅ Monitor memory usage in Spark UI
+- ✅ Monitor memory in Spark UI
 
-**Nike Store Example**:
+**Example**:
 ```python
 # Cache frequently used table
 customer_dim = spark.table("dim_customer").cache()
@@ -1066,31 +1256,24 @@ revenue_by_customer = sales_with_customer.groupBy("customer_name").sum("amount")
 customer_dim.unpersist()
 ```
 
-#### 10.4 Processing Too Much Data
+#### 10.4 Processing Too Much Data - Strategies
 
-**Strategies**:
+**Problem**: Table has 1 billion rows, but you only need last 30 days.
 
-**1. Partition Pruning**:
+**Strategy 1: Partition Pruning**:
 ```python
 # Only read relevant partitions
 sales_df = spark.read.format("delta").load("/mnt/delta/sales") \
     .filter(col("sale_date") >= "2024-01-01")
 ```
 
-**2. Column Pruning**:
+**Strategy 2: Column Pruning**:
 ```python
 # Only select needed columns
 sales_df.select("sale_id", "customer_id", "amount")
 ```
 
-**3. Predicate Pushdown**:
-```python
-# Filter early
-sales_df.filter(col("amount") > 100) \
-    .filter(col("sale_date") >= "2024-01-01")
-```
-
-**4. Incremental Processing**:
+**Strategy 3: Incremental Processing**:
 ```python
 # Only process new data
 new_sales = spark.read.format("delta") \
@@ -1098,24 +1281,13 @@ new_sales = spark.read.format("delta") \
     .load("/mnt/delta/sales")
 ```
 
-**5. Sampling**:
-```python
-# Sample data for testing
-sample_df = sales_df.sample(fraction=0.1, seed=42)
-```
-
 ---
 
 ### 11. Multi-Cloud Data Sharing
 
-**What is Multi-Cloud?**
-Sharing data across different cloud providers (AWS, Azure, GCP).
-
 #### 11.1 Delta Sharing
 
-**Delta Sharing**: Open protocol for secure data sharing.
-
-**Nike Store Example - Share Data Across Clouds**:
+**What We're Doing**: Share data securely across different clouds (AWS → Azure).
 
 **Provider Side (AWS)**:
 ```python
@@ -1148,35 +1320,25 @@ spark.sql("""
 shared_sales = spark.table("azure_nike.nike_sales_share.raw_sales")
 ```
 
-#### 11.2 Cross-Cloud Access
-
-**S3 from Azure Databricks**:
-```python
-# Access S3 from Azure
-spark.conf.set("fs.s3a.access.key", "aws-access-key")
-spark.conf.set("fs.s3a.secret.key", "aws-secret-key")
-
-s3_data = spark.read.format("delta").load("s3://nike-data/sales/")
-```
-
-**Azure Blob from AWS Databricks**:
-```python
-# Access Azure Blob from AWS
-spark.conf.set("fs.azure.account.key.storageaccount.blob.core.windows.net", "azure-key")
-
-blob_data = spark.read.format("delta").load("wasbs://container@storageaccount.blob.core.windows.net/sales/")
-```
-
 ---
 
 ### 12. Data Governance & PII Protection
 
 #### 12.1 Column-Level Security
 
-**Mask PII Data**:
+**What We're Doing**: Mask PII data (emails, phone numbers).
 
+**Sample Customer Data**:
+```
+customer_id | name          | email                    | phone
+------------|---------------|--------------------------|----------
+101         | Sarah Johnson | sarah.johnson@email.com  | 555-1234
+102         | Mike Chen     | mike.chen@email.com      | 555-5678
+```
+
+**Mask Email**:
 ```sql
--- Create function to mask email
+-- Create masking function
 CREATE FUNCTION mask_email(email STRING)
 RETURNS STRING
 RETURN CONCAT(
@@ -1193,6 +1355,14 @@ SELECT
 FROM nike_prod.sales.customers;
 ```
 
+**Result**:
+```
+customer_id | masked_email        | name
+------------|---------------------|-------------
+101         | sa***@email.com     | Sarah Johnson
+102         | mi***@email.com     | Mike Chen
+```
+
 **Column-Level Permissions**:
 ```sql
 -- Grant access to non-PII columns only
@@ -1206,7 +1376,7 @@ TO `analysts@nike.com`;
 
 #### 12.2 Row-Level Security
 
-**Filter Rows Based on User**:
+**What We're Doing**: Users can only see their own data.
 
 ```sql
 -- Create row filter
@@ -1220,34 +1390,6 @@ ALTER TABLE nike_prod.sales.customers
 SET ROW FILTER nike_prod.sales.customer_filter ON (email);
 ```
 
-#### 12.3 Data Lineage
-
-**Track Data Lineage**:
-
-```python
-# Unity Catalog automatically tracks lineage
-# View lineage in UI or query:
-spark.sql("DESCRIBE EXTENDED nike_prod.sales.raw_sales")
-```
-
-#### 12.4 Data Quality Monitoring
-
-**DLT Expectations for PII**:
-
-```python
-@dlt.table(name="silver_customers")
-@dlt.expect("valid_email_format", "email RLIKE '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}$'")
-@dlt.expect("no_ssn_exposure", "ssn IS NULL OR LENGTH(ssn) = 4")  # Only last 4 digits
-@dlt.expect_or_drop("valid_phone", "phone RLIKE '^[0-9]{10}$'")
-def silver_customers():
-    return dlt.read("bronze_customers") \
-        .withColumn("ssn_masked", 
-            when(col("ssn").isNotNull(), 
-                 concat(lit("***-**-"), substring(col("ssn"), -4, 4))
-            ).otherwise(None)
-        )
-```
-
 ---
 
 ### 13. Cost Optimization
@@ -1255,9 +1397,7 @@ def silver_customers():
 #### 13.1 Cluster Optimization
 
 **Right-Size Clusters**:
-
 ```python
-# Use appropriate instance types
 cluster_config = {
     "spark_version": "13.3.x-scala2.12",
     "node_type_id": "i3.xlarge",  # Right size for workload
@@ -1267,7 +1407,7 @@ cluster_config = {
 }
 ```
 
-**Cluster Best Practices**:
+**Best Practices**:
 - ✅ Use autoscaling: `min_workers=1, max_workers=10`
 - ✅ Enable autotermination: `autotermination_minutes=30`
 - ✅ Use spot instances for non-critical jobs
@@ -1276,7 +1416,6 @@ cluster_config = {
 #### 13.2 Job Optimization
 
 **Optimize Job Costs**:
-
 ```python
 # 1. Use job clusters (terminate after job)
 job_cluster = {
@@ -1298,10 +1437,59 @@ spark.sql("VACUUM delta.`/mnt/delta/sales` RETAIN 7 DAYS")
 spark.sql("OPTIMIZE delta.`/mnt/delta/sales` ZORDER BY (customer_id, date)")
 ```
 
-#### 13.3 Storage Optimization
+#### 13.3 Serverless Compute
+
+**What is Serverless?**
+Compute that automatically scales and manages infrastructure for you.
+
+**Benefits**:
+- ✅ No cluster management
+- ✅ Auto-scaling
+- ✅ Pay only for what you use
+- ✅ Faster startup times
+
+**When to Use**:
+- ✅ SQL warehouses (Databricks SQL)
+- ✅ Serverless workflows
+- ✅ On-demand compute
+
+**Example**:
+```python
+# Serverless SQL Warehouse (via UI)
+# Automatically scales based on query load
+# No cluster management needed!
+```
+
+#### 13.4 Photon Engine
+
+**What is Photon?**
+Databricks' native vectorized query engine (faster than Spark for some workloads).
+
+**Benefits**:
+- ✅ 2-10x faster for SQL workloads
+- ✅ Better performance for aggregations
+- ✅ Automatic optimization
+
+**When Photon Helps**:
+- ✅ SQL queries (SELECT, JOIN, GROUP BY)
+- ✅ Aggregations
+- ✅ Filtering and sorting
+
+**Enable Photon**:
+```python
+# Enable Photon in cluster config
+cluster_config = {
+    "spark_version": "13.3.x-scala2.12",
+    "photon": True,  # Enable Photon engine
+    "node_type_id": "i3.xlarge"
+}
+```
+
+**Note**: Photon is automatically enabled in Databricks SQL warehouses.
+
+#### 13.5 Storage Optimization
 
 **Reduce Storage Costs**:
-
 ```python
 # 1. Compress data
 sales_df.write.format("delta") \
@@ -1312,114 +1500,57 @@ sales_df.write.format("delta") \
 sales_df.write.format("delta") \
     .partitionBy("year", "month", "day") \
     .save("/mnt/delta/sales")
-
-# 3. Use lifecycle policies
-# Move old data to cheaper storage (S3 Glacier, Azure Archive)
 ```
-
-#### 13.4 Monitoring Costs
-
-**Track Costs**:
-
-```python
-# Use Databricks SQL to monitor
-spark.sql("""
-    SELECT 
-        cluster_id,
-        SUM(total_cost) as total_cost,
-        AVG(avg_cpu_utilization) as avg_cpu
-    FROM system.billing.usage
-    WHERE date >= current_date() - 7
-    GROUP BY cluster_id
-    ORDER BY total_cost DESC
-""")
-```
-
-**Cost Optimization Checklist**:
-- ✅ Right-size clusters
-- ✅ Use autoscaling
-- ✅ Enable autotermination
-- ✅ Optimize Delta tables regularly
-- ✅ VACUUM old files
-- ✅ Use appropriate storage classes
-- ✅ Monitor and alert on costs
 
 ---
 
-## 💡 Real-World Examples
+## 💡 Complete End-to-End Example
 
-### Example 1: Complete ETL Pipeline
+**What We're Building**: Complete ETL pipeline from raw data to analytics.
 
-**Nike Store - End-to-End Pipeline**:
+**Step 1: Raw Data** (S3):
+```json
+{"sale_id": "SALE-001", "customer_id": 101, "product_id": 501, "amount": 150.00, "sale_date": "2024-01-15"}
+{"sale_id": "SALE-002", "customer_id": 102, "product_id": 502, "amount": 200.00, "sale_date": "2024-01-15"}
+```
 
+**Step 2: Bronze Layer** (Raw ingestion):
 ```python
 import dlt
-from pyspark.sql.functions import *
 
-# Bronze: Ingest from multiple sources
 @dlt.table(name="bronze_sales")
 def bronze_sales():
-    # Read from S3
-    s3_data = spark.read.format("json").load("s3://nike-raw/sales/")
-    
-    # Read from Kafka
-    kafka_data = spark.readStream.format("kafka") \
-        .option("kafka.bootstrap.servers", "kafka:9092") \
-        .option("subscribe", "sales") \
-        .load() \
-        .select(from_json(col("value").cast("string"), schema).alias("data")) \
-        .select("data.*")
-    
-    # Union and write
-    return s3_data.union(kafka_data)
+    return spark.read.format("json").load("s3://nike-raw/sales/")
+```
 
-# Silver: Clean and validate
+**Step 3: Silver Layer** (Cleaned):
+```python
 @dlt.table(name="silver_sales")
 @dlt.expect("valid_amount", "amount > 0")
 @dlt.expect_or_drop("valid_customer", "customer_id IS NOT NULL")
 def silver_sales():
     return dlt.read("bronze_sales") \
-        .withColumn("ingestion_time", current_timestamp()) \
-        .dropDuplicates(["sale_id"])
+        .withColumn("ingestion_time", current_timestamp())
+```
 
-# Gold: Aggregates
+**Step 4: Gold Layer** (Aggregated):
+```python
 @dlt.table(name="gold_daily_sales")
 def gold_daily_sales():
     return dlt.read("silver_sales") \
         .groupBy("sale_date", "customer_id") \
         .agg(
             sum("amount").alias("daily_revenue"),
-            sum("quantity").alias("daily_quantity")
+            count("*").alias("transaction_count")
         )
 ```
 
-### Example 2: Streaming Pipeline
-
-**Real-Time Sales Dashboard**:
-
-```python
-@dlt.table(name="bronze_sales_stream")
-def bronze_sales_stream():
-    return spark.readStream \
-        .format("kafka") \
-        .option("kafka.bootstrap.servers", "kafka:9092") \
-        .option("subscribe", "sales") \
-        .load()
-
-@dlt.table(name="silver_sales_stream")
-@dlt.expect("valid_amount", "amount > 0")
-def silver_sales_stream():
-    return dlt.read_stream("bronze_sales_stream") \
-        .withWatermark("sale_timestamp", "1 hour")
-
-@dlt.table(name="gold_hourly_sales")
-def gold_hourly_sales():
-    return dlt.read_stream("silver_sales_stream") \
-        .groupBy(
-            window(col("sale_timestamp"), "1 hour"),
-            col("customer_id")
-        ) \
-        .agg(sum("amount").alias("hourly_revenue"))
+**Final Result**:
+```
+gold_daily_sales:
+sale_date  | customer_id | daily_revenue | transaction_count
+2024-01-15 | 101         | 150.00        | 1
+2024-01-15 | 102         | 200.00        | 1
 ```
 
 ---
@@ -1428,8 +1559,8 @@ def gold_hourly_sales():
 
 ### Delta Lake
 - ✅ Use Delta Lake for all tables
-- ✅ Run OPTIMIZE regularly
-- ✅ VACUUM old files
+- ✅ Run OPTIMIZE regularly (daily/weekly)
+- ✅ VACUUM old files (weekly/monthly)
 - ✅ Use Z-ORDER on filtered columns
 - ✅ Enable schema evolution carefully
 
@@ -1451,26 +1582,24 @@ def gold_hourly_sales():
 - ✅ Enable autotermination
 - ✅ Optimize Delta tables
 - ✅ Monitor costs regularly
-- ✅ Use appropriate storage classes
 
 ### Governance
 - ✅ Use Unity Catalog
 - ✅ Implement column-level security
 - ✅ Mask PII data
 - ✅ Track data lineage
-- ✅ Set up data quality checks
 
 ---
 
 ## 🎯 Next Steps
 
-Once you're comfortable with Databricks, practice:
-- Building end-to-end pipelines
-- Optimizing Spark jobs
-- Implementing data governance
+Practice building:
+- End-to-end pipelines
+- Real-time streaming
+- Data quality checks
 - Cost optimization
 
-**Study Time**: Spend 1-2 weeks on Databricks, build real projects, then move to next topic!
+**Study Time**: Spend 1-2 weeks on Databricks, build real projects!
 
 ---
 
@@ -1479,7 +1608,6 @@ Once you're comfortable with Databricks, practice:
 - **Databricks Documentation**: https://docs.databricks.com/
 - **Delta Lake Documentation**: https://delta.io/
 - **Spark Documentation**: https://spark.apache.org/docs/latest/
-- **Databricks Academy**: Free courses on Databricks
 
 ---
 
