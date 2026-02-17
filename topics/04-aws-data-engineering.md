@@ -15,26 +15,27 @@
 ### Part 3: Data Warehousing & Analytics
 7. [Amazon Redshift - Data Warehouse](#7-amazon-redshift---data-warehouse)
 8. [Amazon Athena - Query S3 Data](#8-amazon-athena---query-s3-data)
-9. [Amazon Kinesis - Real-Time Streaming](#9-amazon-kinesis---real-time-streaming)
+9. [Amazon DynamoDB - NoSQL Database](#9-amazon-dynamodb---nosql-database)
+10. [Amazon Kinesis - Real-Time Streaming](#10-amazon-kinesis---real-time-streaming)
 
 ### Part 4: Orchestration & Workflow
-10. [AWS Step Functions - Workflow Orchestration](#10-aws-step-functions---workflow-orchestration)
-11. [AWS Data Pipeline - ETL Orchestration](#11-aws-data-pipeline---etl-orchestration)
+11. [AWS Step Functions - Workflow Orchestration](#11-aws-step-functions---workflow-orchestration)
+12. [AWS Data Pipeline - ETL Orchestration](#12-aws-data-pipeline---etl-orchestration)
 
 ### Part 5: Security & Networking
-12. [IAM - Identity & Access Management](#12-iam---identity--access-management)
-13. [VPC & Networking](#13-vpc--networking)
+13. [IAM - Identity & Access Management](#13-iam---identity--access-management)
+14. [VPC & Networking](#14-vpc--networking)
 
 ### Part 6: Integration & Optimization
-14. [Connecting Services Together](#14-connecting-services-together)
-15. [Cost Optimization](#15-cost-optimization)
-16. [Performance Tuning](#16-performance-tuning)
+15. [Connecting Services Together](#15-connecting-services-together)
+16. [Cost Optimization](#16-cost-optimization)
+17. [Performance Tuning](#17-performance-tuning)
 
 ### Part 7: Interview & Practical
-17. [Interview Questions & Answers](#17-aws-interview-questions--answers)
-18. [System Design with AWS](#18-system-design-with-aws)
-19. [Troubleshooting Common Issues](#19-troubleshooting-common-issues)
-20. [Hands-On Exercises](#20-hands-on-exercises)
+18. [Interview Questions & Answers](#18-aws-interview-questions--answers)
+19. [System Design with AWS](#19-system-design-with-aws)
+20. [Troubleshooting Common Issues](#20-troubleshooting-common-issues)
+21. [Hands-On Exercises](#21-hands-on-exercises)
 
 ---
 
@@ -1108,7 +1109,469 @@ GROUP BY year, month;
 
 ---
 
-### 9. Amazon Kinesis - Real-Time Streaming
+### 9. Amazon DynamoDB - NoSQL Database
+
+**What is DynamoDB?**
+Fully managed NoSQL database service providing fast, predictable performance with seamless scalability.
+
+**Key Features**:
+- ✅ Serverless (no infrastructure management)
+- ✅ Single-digit millisecond latency
+- ✅ Auto-scaling
+- ✅ Built-in security, backup, and restore
+- ✅ Key-value and document database
+
+**DynamoDB Architecture Flow**:
+```
+┌─────────────────────────────────────────────────────────┐
+│              Application Layer                           │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐            │
+│  │  Web     │  │  Mobile  │  │  API     │            │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘            │
+└───────┼──────────────┼──────────────┼──────────────────┘
+        │              │              │
+        └──────────────┴──────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   Amazon DynamoDB             │
+        │  ┌────────────────────────┐  │
+        │  │  Tables                 │  │
+        │  │  - Partition Key        │  │
+        │  │  - Sort Key (optional)  │  │
+        │  │  - Attributes           │  │
+        │  └───────────┬────────────┘  │
+        │              ↓                │
+        │  ┌────────────────────────┐  │
+        │  │  Global Secondary      │  │
+        │  │  Indexes (GSI)         │  │
+        │  └───────────┬────────────┘  │
+        │              ↓                │
+        │  ┌────────────────────────┐  │
+        │  │  Local Secondary       │  │
+        │  │  Indexes (LSI)         │  │
+        │  └────────────────────────┘  │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   Auto-Scaling                │
+        │   (Handles Traffic Spikes)    │
+        └──────────────────────────────┘
+```
+
+#### 9.1 DynamoDB Core Concepts
+
+**Key Concepts**:
+- **Table**: Collection of items
+- **Item**: Single record (like a row)
+- **Attribute**: Field in an item (like a column)
+- **Partition Key**: Primary key (required)
+- **Sort Key**: Secondary key (optional, for composite primary key)
+- **GSI**: Global Secondary Index (different partition key)
+- **LSI**: Local Secondary Index (same partition key, different sort key)
+
+**Nike Store Example - Sales Table**:
+
+**Table Structure**:
+```
+Table: nike_sales
+Partition Key: customer_id
+Sort Key: sale_date
+```
+
+**Sample Items**:
+```json
+{
+  "customer_id": 101,
+  "sale_date": "2024-01-15",
+  "sale_id": "SALE-001",
+  "product_id": 501,
+  "amount": 150.00,
+  "quantity": 2,
+  "store_id": 1
+}
+
+{
+  "customer_id": 101,
+  "sale_date": "2024-01-16",
+  "sale_id": "SALE-002",
+  "product_id": 502,
+  "amount": 200.00,
+  "quantity": 1,
+  "store_id": 1
+}
+```
+
+#### 9.2 Create DynamoDB Table
+
+**Create Table** (boto3):
+```python
+import boto3
+
+dynamodb = boto3.client('dynamodb', region_name='us-east-1')
+
+# Create table
+response = dynamodb.create_table(
+    TableName='nike_sales',
+    KeySchema=[
+        {
+            'AttributeName': 'customer_id',
+            'KeyType': 'HASH'  # Partition key
+        },
+        {
+            'AttributeName': 'sale_date',
+            'KeyType': 'RANGE'  # Sort key
+        }
+    ],
+    AttributeDefinitions=[
+        {
+            'AttributeName': 'customer_id',
+            'AttributeType': 'N'  # Number
+        },
+        {
+            'AttributeName': 'sale_date',
+            'AttributeType': 'S'  # String
+        }
+    ],
+    BillingMode='PAY_PER_REQUEST',  # On-demand pricing
+    # Or use Provisioned:
+    # ProvisionedThroughput={
+    #     'ReadCapacityUnits': 5,
+    #     'WriteCapacityUnits': 5
+    # }
+)
+
+print(f"Table created: {response['TableDescription']['TableName']}")
+```
+
+**Create Table with GSI**:
+```python
+response = dynamodb.create_table(
+    TableName='nike_sales',
+    KeySchema=[
+        {'AttributeName': 'customer_id', 'KeyType': 'HASH'},
+        {'AttributeName': 'sale_date', 'KeyType': 'RANGE'}
+    ],
+    AttributeDefinitions=[
+        {'AttributeName': 'customer_id', 'AttributeType': 'N'},
+        {'AttributeName': 'sale_date', 'AttributeType': 'S'},
+        {'AttributeName': 'product_id', 'AttributeType': 'N'}  # For GSI
+    ],
+    BillingMode='PAY_PER_REQUEST',
+    GlobalSecondaryIndexes=[
+        {
+            'IndexName': 'product-sales-index',
+            'KeySchema': [
+                {'AttributeName': 'product_id', 'KeyType': 'HASH'},
+                {'AttributeName': 'sale_date', 'KeyType': 'RANGE'}
+            ],
+            'Projection': {
+                'ProjectionType': 'ALL'  # Include all attributes
+            }
+        }
+    ]
+)
+```
+
+#### 9.3 DynamoDB Operations
+
+**Put Item** (Insert/Update):
+```python
+import boto3
+from decimal import Decimal
+
+dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+table = dynamodb.Table('nike_sales')
+
+# Put item
+table.put_item(
+    Item={
+        'customer_id': 101,
+        'sale_date': '2024-01-15',
+        'sale_id': 'SALE-001',
+        'product_id': 501,
+        'amount': Decimal('150.00'),
+        'quantity': 2,
+        'store_id': 1
+    }
+)
+```
+
+**Get Item** (Read):
+```python
+# Get item by primary key
+response = table.get_item(
+    Key={
+        'customer_id': 101,
+        'sale_date': '2024-01-15'
+    }
+)
+
+item = response.get('Item')
+print(item)
+```
+
+**Query** (Read multiple items with same partition key):
+```python
+# Query all sales for customer 101
+response = table.query(
+    KeyConditionExpression='customer_id = :cid',
+    ExpressionAttributeValues={
+        ':cid': 101
+    }
+)
+
+items = response['Items']
+for item in items:
+    print(item)
+```
+
+**Query with Sort Key**:
+```python
+# Query sales for customer 101 in January 2024
+response = table.query(
+    KeyConditionExpression='customer_id = :cid AND sale_date BETWEEN :start AND :end',
+    ExpressionAttributeValues={
+        ':cid': 101,
+        ':start': '2024-01-01',
+        ':end': '2024-01-31'
+    }
+)
+```
+
+**Scan** (Read all items - use sparingly):
+```python
+# Scan entire table (expensive!)
+response = table.scan()
+
+items = response['Items']
+for item in items:
+    print(item)
+```
+
+**Update Item**:
+```python
+# Update item
+table.update_item(
+    Key={
+        'customer_id': 101,
+        'sale_date': '2024-01-15'
+    },
+    UpdateExpression='SET amount = :new_amount',
+    ExpressionAttributeValues={
+        ':new_amount': Decimal('175.00')
+    }
+)
+```
+
+**Delete Item**:
+```python
+# Delete item
+table.delete_item(
+    Key={
+        'customer_id': 101,
+        'sale_date': '2024-01-15'
+    }
+)
+```
+
+#### 9.4 Global Secondary Index (GSI)
+
+**What is GSI?**
+Index with different partition key and optional sort key. Enables queries on different attributes.
+
+**Use Case**: Query sales by product_id (not customer_id)
+
+**Create GSI**:
+```python
+# Already created in table definition above
+# Query using GSI
+response = table.query(
+    IndexName='product-sales-index',
+    KeyConditionExpression='product_id = :pid',
+    ExpressionAttributeValues={
+        ':pid': 501
+    }
+)
+```
+
+**GSI vs LSI**:
+
+| Aspect | GSI | LSI |
+|--------|-----|-----|
+| **Partition Key** | Can be different | Must be same |
+| **Sort Key** | Can be different | Can be different |
+| **Consistency** | Eventually consistent | Strongly consistent |
+| **Use Case** | Different access patterns | Same partition, different sort |
+
+#### 9.5 DynamoDB Streams
+
+**What are DynamoDB Streams?**
+Time-ordered sequence of item-level changes (INSERT, UPDATE, DELETE) in a table.
+
+**Use Cases**:
+- Real-time processing
+- Replication
+- Analytics
+- Trigger Lambda functions
+
+**Enable Streams**:
+```python
+# Enable streams when creating table
+response = dynamodb.create_table(
+    TableName='nike_sales',
+    # ... other parameters ...
+    StreamSpecification={
+        'StreamEnabled': True,
+        'StreamViewType': 'NEW_AND_OLD_IMAGES'  # Include old and new values
+    }
+)
+```
+
+**Process Stream with Lambda**:
+```python
+import json
+import boto3
+
+def lambda_handler(event, context):
+    """
+    Process DynamoDB stream events
+    """
+    for record in event['Records']:
+        # Check event type
+        if record['eventName'] == 'INSERT':
+            new_item = record['dynamodb']['NewImage']
+            print(f"New sale: {new_item}")
+            # Process new sale
+        
+        elif record['eventName'] == 'MODIFY':
+            old_item = record['dynamodb']['OldImage']
+            new_item = record['dynamodb']['NewImage']
+            print(f"Updated sale: {old_item} -> {new_item}")
+            # Process update
+        
+        elif record['eventName'] == 'REMOVE':
+            old_item = record['dynamodb']['OldImage']
+            print(f"Deleted sale: {old_item}")
+            # Process deletion
+    
+    return {'statusCode': 200}
+```
+
+#### 9.6 DynamoDB Best Practices
+
+**1. Design for Access Patterns**:
+```python
+# Design table based on how you'll query it
+# Example: Query sales by customer
+# Partition Key: customer_id
+# Sort Key: sale_date
+```
+
+**2. Use GSI for Different Access Patterns**:
+```python
+# If you need to query by product_id, create GSI
+# Don't scan the table!
+```
+
+**3. Avoid Scans**:
+```python
+# Bad: Scan entire table (expensive!)
+table.scan()
+
+# Good: Query with partition key
+table.query(KeyConditionExpression='customer_id = :cid', ...)
+```
+
+**4. Use Batch Operations**:
+```python
+# Batch write (up to 25 items)
+with table.batch_writer() as batch:
+    for sale in sales:
+        batch.put_item(Item=sale)
+```
+
+**5. Use On-Demand Billing for Variable Workloads**:
+```python
+# On-demand: Pay per request
+BillingMode='PAY_PER_REQUEST'
+
+# Provisioned: Fixed capacity (cheaper for steady workloads)
+ProvisionedThroughput={'ReadCapacityUnits': 5, 'WriteCapacityUnits': 5}
+```
+
+**6. Use Appropriate Data Types**:
+```python
+# Use Decimal for money (not float)
+amount = Decimal('150.00')
+
+# Use strings for dates (ISO format)
+sale_date = '2024-01-15'
+```
+
+#### 9.7 DynamoDB vs RDS
+
+**When to Use DynamoDB**:
+- ✅ NoSQL data model
+- ✅ Single-digit millisecond latency
+- ✅ Auto-scaling
+- ✅ Serverless
+- ✅ Key-value or document data
+
+**When to Use RDS**:
+- ✅ Relational data
+- ✅ Complex queries (JOINs)
+- ✅ ACID transactions across tables
+- ✅ SQL interface
+
+**Comparison**:
+
+| Aspect | DynamoDB | RDS |
+|--------|----------|-----|
+| **Data Model** | NoSQL | Relational |
+| **Latency** | Single-digit ms | 10-100ms |
+| **Scaling** | Automatic | Manual |
+| **Queries** | Key-based | SQL (complex) |
+| **Transactions** | Single table | Multi-table |
+
+#### 9.8 DynamoDB Integration with Other Services
+
+**DynamoDB → S3 (Export)**:
+```python
+# Export DynamoDB table to S3
+# Use AWS Data Pipeline or AWS DMS
+```
+
+**DynamoDB → Redshift (ETL)**:
+```python
+# Use AWS Glue to read from DynamoDB and write to Redshift
+datasource = glueContext.create_dynamic_frame.from_options(
+    connection_type="dynamodb",
+    connection_options={
+        "dynamodb.input.tableName": "nike_sales",
+        "dynamodb.throughput.read.percent": "0.5"
+    }
+)
+
+# Write to Redshift
+glueContext.write_dynamic_frame.from_jdbc_conf(
+    frame=datasource,
+    catalog_connection="redshift-connection",
+    connection_options={
+        "dbtable": "sales",
+        "database": "nike_sales"
+    }
+)
+```
+
+**DynamoDB → Kinesis (Streams)**:
+```python
+# DynamoDB Streams → Kinesis → S3
+# Process changes in real-time
+```
+
+---
+
+### 10. Amazon Kinesis - Real-Time Streaming
 
 **What is Kinesis?**
 Platform for streaming data in real-time.
