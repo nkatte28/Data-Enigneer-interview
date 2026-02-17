@@ -1474,21 +1474,99 @@ RAG combines retrieval (finding relevant documents) with generation (LLM creatin
 User Query → Embed Query → Vector Search → Retrieve Context → Build Prompt → LLM Generation → Response
 ```
 
-**3. Key Components**:
-- **Embedding Model**: Converts text to vectors
-- **Vector Database**: Stores and searches embeddings
-- **Retriever**: Finds relevant documents
-- **LLM**: Generates response using context
+**3. Detailed Architecture**:
 
-**4. Why RAG?**
-- ✅ Reduces hallucinations
-- ✅ Uses up-to-date information
+**Step 1: Query Embedding**:
+```python
+# Convert user query to vector
+query = "What is the status of sales pipeline?"
+query_embedding = embeddings.embed_query(query)
+# Output: [0.23, -0.45, 0.67, ...] (1536 dimensions)
+```
+
+**Step 2: Vector Search**:
+```python
+# Search for similar documents
+results = vector_db.similarity_search(
+    query_vector=query_embedding,
+    top_k=3
+)
+# Returns: Top 3 most similar documents
+```
+
+**Step 3: Context Retrieval**:
+```python
+# Extract text from results
+context = "\n\n".join([doc.text for doc in results])
+```
+
+**Step 4: Prompt Building**:
+```python
+prompt = f"""Context:
+{context}
+
+Question: {query}
+
+Answer based on the context above.
+"""
+```
+
+**Step 5: LLM Generation**:
+```python
+response = llm.generate(prompt)
+# Uses context to generate accurate response
+```
+
+**4. Key Components**:
+- **Embedding Model**: Converts text to vectors (e.g., OpenAI text-embedding-3-small)
+- **Vector Database**: Stores and searches embeddings (e.g., Databricks Vector Search)
+- **Retriever**: Finds relevant documents (top-K similarity search)
+- **LLM**: Generates response using context (e.g., GPT-4)
+
+**5. Why RAG?**
+- ✅ Reduces hallucinations (LLM makes up facts)
+- ✅ Uses up-to-date information (from vector DB)
 - ✅ Better for domain-specific knowledge
+- ✅ Grounds responses in real data
+
+**6. Real-World Example**:
+
+**Scenario**: Data engineering chatbot
+
+```python
+# User asks: "What is the status of sales pipeline?"
+
+# Step 1: Embed query
+query_embedding = embeddings.embed_query("What is the status of sales pipeline?")
+
+# Step 2: Search vector DB
+results = vector_search(query_embedding, top_k=3)
+# Returns:
+# - "Sales pipeline (sales_etl) is running successfully, processing 1M records daily."
+# - "Sales pipeline runs at 2 AM daily and loads data to Redshift."
+# - "Last run: 2024-01-15 02:00:00, Status: Success"
+
+# Step 3: Build prompt with context
+prompt = f"""Context:
+Sales pipeline (sales_etl) is running successfully, processing 1M records daily.
+Sales pipeline runs at 2 AM daily and loads data to Redshift.
+Last run: 2024-01-15 02:00:00, Status: Success
+
+Question: What is the status of sales pipeline?
+
+Answer:
+"""
+
+# Step 4: Generate response
+response = llm.generate(prompt)
+# Output: "The sales pipeline (sales_etl) is running successfully. It processes 1M records daily, runs at 2 AM, and the last run on 2024-01-15 was successful."
+```
 
 **Key Points**:
 - ✅ RAG = Retrieval + Generation
 - ✅ Vector search finds relevant context
 - ✅ LLM uses context to generate accurate responses
+- ✅ Reduces hallucinations significantly
 
 ---
 
@@ -1499,52 +1577,582 @@ User Query → Embed Query → Vector Search → Retrieve Context → Build Prom
 **Answer Structure**:
 
 **1. Vector Database Options**:
-- **Databricks Vector Search**: Managed, integrated
-- **Pinecone**: Fully managed, easy to use
-- **Chroma**: Open-source, self-hosted
-- **Weaviate**: Open-source, feature-rich
 
-**2. Decision Factors**:
+| Database | Type | Pros | Cons |
+|----------|------|------|------|
+| **Databricks Vector Search** | Managed | Integrated, scalable | Databricks-only |
+| **Pinecone** | Managed | Easy, fast | Cost at scale |
+| **Chroma** | Self-hosted | Free, flexible | Requires maintenance |
+| **Weaviate** | Self-hosted | Feature-rich | Complex setup |
+| **Qdrant** | Self-hosted | Fast, efficient | Self-hosted overhead |
 
-**Managed vs Self-Hosted**:
-- Managed: Easier, but less control
-- Self-hosted: More control, but more maintenance
+**2. Decision Framework**:
 
-**Scalability**:
-- How many vectors?
-- Query throughput?
-- Growth rate?
+**Factor 1: Managed vs Self-Hosted**:
 
-**Integration**:
-- Works with existing stack?
-- Databricks integration?
-- API compatibility?
+**Managed (Databricks Vector Search, Pinecone)**:
+- ✅ No infrastructure management
+- ✅ Auto-scaling
+- ✅ Easy to use
+- ❌ Less control
+- ❌ Higher cost at scale
 
-**3. Recommendation**:
-- **Databricks users**: Use Databricks Vector Search
-- **Quick start**: Use Pinecone
-- **Cost-sensitive**: Use Chroma (self-hosted)
+**Self-Hosted (Chroma, Weaviate)**:
+- ✅ Full control
+- ✅ Lower cost
+- ✅ Customizable
+- ❌ Requires maintenance
+- ❌ Setup complexity
+
+**Factor 2: Scalability**:
+
+**Questions to Ask**:
+- How many vectors? (millions vs billions)
+- Query throughput? (QPS requirements)
+- Growth rate? (how fast will it grow)
+
+**Example**:
+```python
+# Small scale (< 1M vectors): Chroma or Pinecone
+# Medium scale (1M-100M): Databricks Vector Search or Pinecone
+# Large scale (> 100M): Databricks Vector Search or self-hosted cluster
+```
+
+**Factor 3: Integration**:
+
+**Databricks Stack**:
+- ✅ Use Databricks Vector Search (seamless integration)
+- ✅ Works with Delta tables
+- ✅ Integrated with MLflow
+
+**AWS Stack**:
+- ✅ Consider Pinecone (managed)
+- ✅ Or self-host Chroma on EC2
+
+**Factor 4: Cost**:
+
+**Cost Comparison** (approximate):
+- **Pinecone**: $70/month for 1M vectors
+- **Databricks Vector Search**: Included in Databricks (pay for compute)
+- **Chroma**: Free (self-hosted, pay for infrastructure)
+
+**3. Real-World Decision**:
+
+**Scenario**: Data engineering chatbot for 10K documents
+
+**Requirements**:
+- 10K documents (~1M vectors with chunking)
+- 100 queries/day
+- Databricks environment
+- Need quick setup
+
+**Decision**: **Databricks Vector Search**
+- ✅ Integrated with existing stack
+- ✅ No additional infrastructure
+- ✅ Easy to set up
+- ✅ Scales automatically
+
+**Implementation**:
+```python
+# Use Databricks Vector Search
+vsc = VectorSearchClient(workspace_client=w)
+vsc.create_endpoint(name="pipeline-docs")
+vsc.create_index(endpoint_name="pipeline-docs", index_name="docs-index", ...)
+```
+
+**4. Recommendation Matrix**:
+
+| Scenario | Recommendation |
+|----------|----------------|
+| **Databricks user, < 10M vectors** | Databricks Vector Search |
+| **Quick start, managed** | Pinecone |
+| **Cost-sensitive, self-hosted OK** | Chroma |
+| **Large scale (> 100M vectors)** | Databricks Vector Search or self-hosted cluster |
+| **Feature-rich, self-hosted** | Weaviate |
 
 **Key Points**:
 - ✅ Consider managed vs self-hosted
 - ✅ Evaluate scalability needs
 - ✅ Check integration with existing tools
+- ✅ Factor in cost at scale
+
+---
+
+#### Q3: Design an AI Agent for SQL Generation
+
+**Question**: "Design an AI agent that generates SQL queries from natural language. Walk me through the architecture."
+
+**Answer Structure**:
+
+**1. Requirements**:
+- Input: Natural language query
+- Output: Valid SQL query
+- Safety: Only SELECT queries
+- Validation: Check SQL syntax
+- Execution: Execute and return results
+
+**2. Architecture**:
+
+```
+User Query → Intent Classification → Schema Retrieval → SQL Generation → Validation → Execution → Response
+```
+
+**3. Implementation**:
+
+**Step 1: Intent Classification**:
+```python
+def classify_intent(query: str) -> str:
+    """
+    Classify user intent (SELECT, EXPLAIN, etc.)
+    """
+    prompt = f"""Classify this query intent:
+Query: {query}
+
+Intent (SELECT, EXPLAIN, DESCRIBE):
+"""
+    response = llm.generate(prompt)
+    return response.strip()
+```
+
+**Step 2: Schema Retrieval**:
+```python
+def get_schema(table_name: str) -> str:
+    """
+    Get table schema from metadata
+    """
+    schema = spark.sql(f"DESCRIBE TABLE {table_name}").collect()
+    return "\n".join([f"{row.col_name} ({row.data_type})" for row in schema])
+```
+
+**Step 3: SQL Generation**:
+```python
+def generate_sql(user_query: str, schema: str) -> str:
+    """
+    Generate SQL from natural language
+    """
+    prompt = f"""You are a SQL expert. Generate SQL queries from natural language.
+
+Database Schema:
+{schema}
+
+Examples:
+Question: Get all sales from January 2024
+SQL: SELECT * FROM sales WHERE sale_date >= '2024-01-01' AND sale_date < '2024-02-01'
+
+Question: Total revenue by customer
+SQL: SELECT customer_id, SUM(amount) as total_revenue FROM sales GROUP BY customer_id
+
+Question: {user_query}
+SQL:
+"""
+    response = llm.generate(prompt, temperature=0.3)
+    sql = extract_sql(response)
+    return sql
+```
+
+**Step 4: Validation**:
+```python
+def validate_sql(sql: str) -> tuple[bool, str]:
+    """
+    Validate SQL query
+    """
+    # Check for dangerous operations
+    dangerous = ["DROP", "DELETE", "TRUNCATE", "ALTER", "INSERT", "UPDATE"]
+    if any(keyword in sql.upper() for keyword in dangerous):
+        return False, "Only SELECT queries are allowed"
+    
+    # Check syntax
+    try:
+        spark.sql(f"EXPLAIN {sql}")
+        return True, "Valid SQL"
+    except Exception as e:
+        return False, str(e)
+```
+
+**Step 5: Execution**:
+```python
+def execute_sql(sql: str, spark) -> pd.DataFrame:
+    """
+    Execute SQL and return results
+    """
+    result = spark.sql(sql)
+    return result.toPandas()
+```
+
+**4. Complete Agent**:
+```python
+def sql_agent(user_query: str, spark) -> dict:
+    """
+    Complete SQL generation agent
+    """
+    # Step 1: Classify intent
+    intent = classify_intent(user_query)
+    if intent != "SELECT":
+        return {"error": "Only SELECT queries are supported"}
+    
+    # Step 2: Get schema (assume sales table)
+    schema = get_schema("sales")
+    
+    # Step 3: Generate SQL
+    sql = generate_sql(user_query, schema)
+    
+    # Step 4: Validate
+    is_valid, message = validate_sql(sql)
+    if not is_valid:
+        return {"error": message, "sql": sql}
+    
+    # Step 5: Execute
+    try:
+        result = execute_sql(sql, spark)
+        return {
+            "sql": sql,
+            "result": result.to_dict(),
+            "row_count": len(result)
+        }
+    except Exception as e:
+        return {"error": str(e), "sql": sql}
+```
+
+**5. Example Usage**:
+```python
+# User query
+query = "Get total sales for customer 101 in January 2024"
+
+# Agent response
+result = sql_agent(query, spark)
+# Returns:
+# {
+#   "sql": "SELECT SUM(amount) as total_sales FROM sales WHERE customer_id = 101 AND sale_date >= '2024-01-01' AND sale_date < '2024-02-01'",
+#   "result": [{"total_sales": 1500.00}],
+#   "row_count": 1
+# }
+```
+
+**Key Points**:
+- ✅ Intent classification
+- ✅ Schema-aware generation
+- ✅ Safety validation
+- ✅ Error handling
+- ✅ Result formatting
+
+---
+
+#### Q4: How Do You Handle LLM Hallucinations?
+
+**Question**: "LLMs sometimes make up facts. How do you prevent hallucinations in your AI agents?"
+
+**Answer Structure**:
+
+**1. What are Hallucinations?**
+LLM generating false or made-up information that sounds plausible.
+
+**2. Prevention Strategies**:
+
+**Strategy 1: Use RAG** (Most Effective):
+```python
+# Instead of asking LLM directly, use RAG
+# LLM only uses retrieved context
+
+def rag_query(query: str):
+    # Retrieve relevant context
+    context = vector_search(query, top_k=3)
+    
+    # Build prompt with context
+    prompt = f"""Context:
+{context}
+
+Question: {query}
+
+Answer based ONLY on the context above. If answer is not in context, say "I don't know".
+"""
+    return llm.generate(prompt)
+```
+
+**Strategy 2: Prompt Engineering**:
+```python
+# Explicit instructions to be accurate
+prompt = """You are a data engineering assistant. 
+IMPORTANT: Only use information from the provided context.
+If you don't know the answer, say "I don't have that information."
+Do not make up facts.
+
+Context: {context}
+Question: {query}
+"""
+```
+
+**Strategy 3: Fact-Checking**:
+```python
+def fact_check_response(response: str, sources: list) -> bool:
+    """
+    Verify response against sources
+    """
+    # Check if response facts are in sources
+    for source in sources:
+        if response.lower() in source.lower():
+            return True
+    return False
+```
+
+**Strategy 4: Confidence Scoring**:
+```python
+def generate_with_confidence(query: str) -> dict:
+    """
+    Generate response with confidence score
+    """
+    response = llm.generate(query)
+    
+    # Ask LLM for confidence
+    confidence_prompt = f"""Rate your confidence in this answer (0-1):
+Answer: {response}
+Confidence:
+"""
+    confidence = float(llm.generate(confidence_prompt))
+    
+    return {
+        "response": response,
+        "confidence": confidence,
+        "should_verify": confidence < 0.7
+    }
+```
+
+**3. Real-World Example**:
+
+**Problem**: LLM makes up pipeline status
+
+**Solution**: Use RAG with pipeline metadata
+
+```python
+# Bad: Direct LLM query (can hallucinate)
+response = llm.generate("What is the status of sales pipeline?")
+# Might say: "Sales pipeline is running" (even if it's not)
+
+# Good: RAG query (grounded in real data)
+def get_pipeline_status(pipeline_name: str):
+    # Retrieve actual pipeline metadata
+    metadata = get_pipeline_metadata(pipeline_name)
+    
+    # Use RAG
+    context = f"Pipeline {pipeline_name}: Status={metadata['status']}, Last run={metadata['last_run']}"
+    
+    prompt = f"""Context:
+{context}
+
+Question: What is the status of {pipeline_name}?
+
+Answer:
+"""
+    return llm.generate(prompt)
+# Always accurate because it uses real metadata
+```
+
+**Key Points**:
+- ✅ Use RAG (most effective)
+- ✅ Explicit prompt instructions
+- ✅ Fact-checking
+- ✅ Confidence scoring
+- ✅ Ground responses in real data
+
+---
+
+#### Q5: Design a Real-Time Anomaly Detection Agent
+
+**Question**: "Design an AI agent that detects and explains anomalies in streaming data in real-time."
+
+**Answer Structure**:
+
+**1. Requirements**:
+- Real-time streaming data
+- Detect anomalies
+- Explain why it's an anomaly
+- Alert on anomalies
+
+**2. Architecture**:
+
+```
+Streaming Data → Feature Extraction → Anomaly Detection → LLM Explanation → Alert
+```
+
+**3. Implementation**:
+
+**Step 1: Feature Extraction**:
+```python
+def extract_features(data_point: dict) -> dict:
+    """
+    Extract features for anomaly detection
+    """
+    return {
+        "sales": data_point["amount"],
+        "timestamp": data_point["timestamp"],
+        "customer_id": data_point["customer_id"],
+        "hour_of_day": pd.to_datetime(data_point["timestamp"]).hour,
+        "day_of_week": pd.to_datetime(data_point["timestamp"]).dayofweek
+    }
+```
+
+**Step 2: Statistical Anomaly Detection**:
+```python
+def detect_anomaly(features: dict, historical_stats: dict) -> bool:
+    """
+    Detect if data point is anomaly
+    """
+    # Z-score method
+    mean = historical_stats["mean"]
+    std = historical_stats["std"]
+    z_score = abs((features["sales"] - mean) / std)
+    
+    return z_score > 3  # 3 standard deviations
+```
+
+**Step 3: LLM Explanation**:
+```python
+def explain_anomaly(data_point: dict, historical_data: list) -> str:
+    """
+    Use LLM to explain why it's an anomaly
+    """
+    prompt = f"""You are a data analyst. Explain why this data point is an anomaly.
+
+Current Data Point:
+{data_point}
+
+Historical Data (last 10 points):
+{historical_data}
+
+Explain:
+1. Why is this an anomaly?
+2. What patterns does it break?
+3. What could cause this?
+4. What should be done?
+
+Analysis:
+"""
+    return llm.generate(prompt)
+```
+
+**4. Complete Agent**:
+```python
+def anomaly_detection_agent(stream_df, spark):
+    """
+    Real-time anomaly detection agent
+    """
+    historical_stats = calculate_historical_stats(spark)
+    
+    def process_batch(batch_df, batch_id):
+        for row in batch_df.collect():
+            features = extract_features(row.asDict())
+            
+            # Detect anomaly
+            is_anomaly = detect_anomaly(features, historical_stats)
+            
+            if is_anomaly:
+                # Explain with LLM
+                explanation = explain_anomaly(row.asDict(), get_recent_data(spark))
+                
+                # Alert
+                send_alert({
+                    "anomaly": True,
+                    "data_point": row.asDict(),
+                    "explanation": explanation,
+                    "timestamp": datetime.now()
+                })
+    
+    query = stream_df.writeStream \
+        .foreachBatch(process_batch) \
+        .start()
+    
+    return query
+```
+
+**Key Points**:
+- ✅ Real-time processing
+- ✅ Statistical detection
+- ✅ LLM explanation
+- ✅ Alerting system
 
 ---
 
 ### 14. System Design with AI Agents
 
-**Design: Data Engineering Chatbot**:
+#### 14.1 Data Engineering Chatbot Architecture
+
+**Complete Architecture**:
 ```
-User → API Gateway → Lambda → RAG System → Vector DB → LLM → Response
+┌─────────────────────────────────────────────────────────┐
+│              User (Web/Mobile/API)                       │
+└──────────────────────────┬──────────────────────────────┘
+                           ↓
+        ┌──────────────────────────────┐
+        │   API Gateway                 │
+        │   (Authentication, Rate Limit) │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   Lambda Function             │
+        │   (Orchestration)             │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   Intent Classification       │
+        │   (Understand user intent)    │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   RAG System                  │
+        │  ┌────────────────────────┐ │
+        │  │  Vector Search          │ │
+        │  │  (Find relevant docs)   │ │
+        │  └───────────┬────────────┘ │
+        │              ↓                │
+        │  ┌────────────────────────┐ │
+        │  │  Context Retrieval      │ │
+        │  └───────────┬────────────┘ │
+        └──────────────┼───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   LLM (GPT-4/Claude)          │
+        │   (Generate Response)         │
+        └──────────────┬───────────────┘
+                       ↓
+        ┌──────────────────────────────┐
+        │   Response to User            │
+        └──────────────────────────────┘
 ```
 
 **Components**:
-- **API Gateway**: Handle requests
-- **Lambda**: Orchestrate agent
-- **RAG System**: Retrieve context
-- **Vector DB**: Store embeddings
-- **LLM**: Generate responses
+- **API Gateway**: Handle requests, authentication
+- **Lambda**: Orchestrate agent workflow
+- **RAG System**: Retrieve relevant context
+- **Vector DB**: Store embeddings (Databricks Vector Search)
+- **LLM**: Generate responses (OpenAI GPT-4)
+
+**Implementation**:
+```python
+# API Gateway → Lambda
+def lambda_handler(event, context):
+    user_query = event["query"]
+    
+    # RAG query
+    response = rag_chatbot(user_query)
+    
+    return {
+        "statusCode": 200,
+        "body": json.dumps({"response": response})
+    }
+```
+
+#### 14.2 SQL Generation Agent Architecture
+
+**Architecture**:
+```
+User Query → SQL Agent → Schema Retrieval → SQL Generation → Validation → Execution → Response
+```
+
+**Components**:
+- **SQL Agent**: Orchestrates workflow
+- **Schema Store**: Metadata database
+- **SQL Generator**: LLM generates SQL
+- **Validator**: Checks SQL safety
+- **Executor**: Runs SQL on Spark/Redshift
 
 ---
 
@@ -1552,14 +2160,65 @@ User → API Gateway → Lambda → RAG System → Vector DB → LLM → Respons
 
 #### Exercise 1: Build Simple RAG System
 
-**Objective**: Build a basic RAG system
+**Objective**: Build a basic RAG system from scratch
 
 **Tasks**:
-1. Prepare documents
-2. Generate embeddings
-3. Store in vector database
-4. Implement RAG query
-5. Test with sample queries
+1. Prepare 10 documents about data pipelines
+2. Generate embeddings using OpenAI
+3. Store in Databricks Vector Search
+4. Implement RAG query function
+5. Test with 5 sample queries
+
+**Solution Template**:
+```python
+# Step 1: Prepare documents
+documents = [
+    "Sales pipeline processes 1M records daily...",
+    "Customer pipeline runs hourly...",
+    # ... more documents
+]
+
+# Step 2: Generate embeddings
+embeddings = OpenAIEmbeddings()
+for doc in documents:
+    doc["embedding"] = embeddings.embed_query(doc["text"])
+
+# Step 3: Store in vector DB
+vsc.upsert(endpoint_name="docs", index_name="pipeline-docs", inputs=documents)
+
+# Step 4: RAG query
+def rag_query(query: str):
+    query_embedding = embeddings.embed_query(query)
+    results = vsc.similarity_search(endpoint_name="docs", index_name="pipeline-docs", query_vector=query_embedding)
+    context = "\n".join([r["text"] for r in results])
+    prompt = f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
+    return llm.generate(prompt)
+
+# Step 5: Test
+rag_query("What is the sales pipeline?")
+```
+
+#### Exercise 2: Build SQL Generator Agent
+
+**Objective**: Build an agent that generates SQL from natural language
+
+**Tasks**:
+1. Create schema documentation
+2. Build SQL generation function
+3. Add validation
+4. Execute SQL safely
+5. Format response
+
+#### Exercise 3: Build Pipeline Monitor Agent
+
+**Objective**: Build an agent that monitors pipelines and explains failures
+
+**Tasks**:
+1. Collect pipeline logs
+2. Detect failures
+3. Use LLM to explain failures
+4. Generate recommendations
+5. Send alerts
 
 ---
 
