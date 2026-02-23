@@ -1959,6 +1959,56 @@ sales_stream \
 - Late data within watermark → processed ✅
 - Data older than watermark → dropped ❌
 
+#### 6.5 Triggers, Windows, and Intervals
+
+**Three different “intervals”** (don’t mix them up):
+
+| Concept | What it controls | Example |
+|--------|-------------------|--------|
+| **Trigger** | How often a micro-batch runs | `trigger(processingTime="10 seconds")` → every 10s |
+| **Window** | Time bucket for grouping (event time) | `window(col("timestamp"), "1 hour")` → 1-hour buckets |
+| **Watermark** | How late data can arrive and still count | `withWatermark("timestamp", "1 hour")` → up to 1h late |
+
+**Trigger options**
+
+| Option | Code | Use case |
+|--------|------|----------|
+| Every N | `trigger(processingTime="10 seconds")` | Near real-time |
+| Every N | `trigger(processingTime="1 minute")` | Balanced cost/latency |
+| Run once, stop | `trigger(once=True)` | Scheduled “run once” job |
+| Run once (Spark 3.3+) | `trigger(availableNow=True)` | Same as `once=True` |
+| Continuous (experimental) | `trigger(continuous="1 second")` | Sub-second latency |
+
+Trigger does **not** decide which events go in which window; it only decides **how often** Spark runs the query.
+
+**Window types**
+
+1. **Tumbling window** (non-overlapping): `window(col("timestamp"), "1 hour")`  
+   - Each event in exactly one bucket (e.g. 10:00–11:00, 11:00–12:00).  
+   - Duration strings: `"5 seconds"`, `"15 minutes"`, `"1 hour"`, `"1 day"`.
+
+2. **Sliding window** (overlapping): `window(col("timestamp"), "1 hour", "30 minutes")`  
+   - Window size 1 hour, new window every 30 minutes → [10:00–11:00), [10:30–11:30), [11:00–12:00).  
+   - Same event can appear in multiple windows.
+
+**Rule of thumb**: Watermark duration ≥ window size (e.g. 1-hour window → `withWatermark("timestamp", "1 hour")`) so late data can still be counted.
+
+**Nike example – hourly revenue, batch every minute**
+```python
+sales_stream \
+    .withWatermark("timestamp", "1 hour") \
+    .groupBy(window("timestamp", "1 hour")) \
+    .agg(sum("amount").alias("hourly_revenue")) \
+    .writeStream \
+    .outputMode("update") \
+    .trigger(processingTime="1 minute") \
+    .option("checkpointLocation", "/mnt/checkpoints/hourly") \
+    .start(path)
+```
+- **Trigger**: micro-batch every 1 minute.  
+- **Window**: 1-hour tumbling by event time.  
+- **Watermark**: accept events up to 1 hour late.
+
 ---
 
 ### 9. Delta Live Tables + Structured Streaming
@@ -2179,501 +2229,50 @@ SET TBLPROPERTIES (
 
 ### 11. Cluster Sizing & Scaling for Different Data Volumes
 
-**Why This Matters**: Understanding how to size clusters based on data volume is critical for both performance and cost. This section provides concrete numbers and calculations.
+**Goal**: Pick the right node type and worker count for a given data volume. Use this as a quick reference, not a deep dive.
 
 ---
 
-#### 11.1 Node Types & Specifications
+#### 11.1 Node Types (Quick Pick)
 
-**Common Databricks Node Types**:
+| Volume (per day) | Node type | Workers (typical) | Notes |
+|------------------|-----------|-------------------|--------|
+| **~100 GB** | i3.xlarge (4 vCPU, ~30 GB RAM) | 2 | Dev/small prod; job cluster |
+| **~1 TB** | i3.2xlarge (8 vCPU, ~61 GB RAM) | 4–8 (autoscale) | Most production batch |
+| **~10 TB** | i3.4xlarge (16 vCPU, ~122 GB RAM) | 20–30 (autoscale) | Heavy batch / enterprise |
 
-| Node Type | vCPUs | Memory | Disk (NVMe) | Use Case |
-|-----------|-------|--------|-------------|----------|
-| **i3.xlarge** | 4 | 30.5 GB | 950 GB | Small workloads, dev/test |
-| **i3.2xlarge** | 8 | 61 GB | 1.9 TB | Medium workloads |
-| **i3.4xlarge** | 16 | 122 GB | 3.8 TB | Large workloads |
-| **i3.8xlarge** | 32 | 244 GB | 7.6 TB | Very large workloads |
-| **m5d.large** | 2 | 8 GB | 75 GB | Light workloads |
-| **m5d.xlarge** | 4 | 16 GB | 150 GB | Small-medium workloads |
-| **r5d.large** | 2 | 16 GB | 75 GB | Memory-intensive |
-
-**Key Considerations**:
-- **i3 instances**: Optimized for I/O (NVMe SSD), best for data processing
-- **m5d instances**: Balanced CPU/memory, good for general workloads
-- **r5d instances**: Memory-optimized, good for large joins/aggregations
+- **i3** = default for Spark (good I/O, NVMe). Use **m5d** for balanced, **r5d** for memory-heavy (big joins) only if needed.
 
 ---
 
-#### 11.2 Calculating Cluster Size Based on Data Volume
+#### 11.2 Sizing Rule of Thumb
 
-**Formula for Batch Processing**:
-```
-Required Workers = (Data Volume per Hour) / (Processing Throughput per Worker per Hour)
-```
+- **Formula**: `workers ≈ (hourly data volume) / (throughput per worker per hour)` then add overhead (e.g. 1.3×) and a safety margin (e.g. 2×), and respect a minimum (e.g. 2 workers).
+- **Rough throughput per i3 worker**: read ~500–1000 MB/s, transform ~200–500 MB/s (depends on query). So one i3 worker can handle on the order of ~1–2 TB/hour read-bound.
+- **Interview answer**: “I’d start with the table above; then measure CPU/memory and adjust. Prefer autoscale (min/target/max workers) over fixed size.”
 
-**Processing Throughput Guidelines** (per i3.xlarge worker):
-- **Read**: ~500-1000 MB/s per worker
-- **Transform**: ~200-500 MB/s per worker (depends on complexity)
-- **Write**: ~300-800 MB/s per worker
-
-**Example Calculations**:
-
-**Scenario 1: 100GB/Day Pipeline**
-
-**Given**:
-- Data volume: 100GB/day = 4.2GB/hour = 70MB/minute
-- Processing window: 1 hour (batch)
-- Node type: i3.xlarge (4 vCPUs, 30.5GB RAM)
-
-**Calculation**:
-```
-Hourly data: 4.2 GB
-Throughput per worker: ~500 MB/s = ~1.8 TB/hour = 1800 GB/hour
-Required workers: 4.2 GB / 1800 GB = 0.002 workers
-
-But wait! We need to account for:
-- Overhead: 20-30%
-- Safety margin: 2x
-- Minimum viable: 2 workers
-
-Recommended: 2 workers (i3.xlarge)
-Total: 8 vCPUs, 61 GB RAM, 1.9 TB disk
-```
-
-**Cluster Configuration**:
+**One config example (1 TB/day)**:
 ```python
-cluster_config = {
-    "spark_version": "13.3.x-scala2.12",
-    "node_type_id": "i3.xlarge",
-    "num_workers": 2,  # Handles 100GB/day easily
-    "autotermination_minutes": 30
-}
-```
-
-**Cost Estimate**: ~$0.30/hour × 2 workers = $0.60/hour = ~$14/day (if running 24/7)
-
----
-
-**Scenario 2: 1TB/Day Pipeline**
-
-**Given**:
-- Data volume: 1TB/day = 42GB/hour = 700MB/minute
-- Processing window: 1 hour (batch)
-- Node type: i3.2xlarge (8 vCPUs, 61GB RAM)
-
-**Calculation**:
-```
-Hourly data: 42 GB
-Throughput per worker: ~500 MB/s = ~1.8 TB/hour
-Required workers: 42 GB / 1800 GB = 0.023 workers
-
-But with overhead and safety:
-- Overhead: 30%
-- Safety margin: 3x (for peak loads)
-- Recommended: 8-10 workers (i3.2xlarge)
-
-Recommended: 8 workers (i3.2xlarge)
-Total: 64 vCPUs, 488 GB RAM, 15.2 TB disk
-```
-
-**Cluster Configuration**:
-```python
-cluster_config = {
-    "spark_version": "13.3.x-scala2.12",
-    "node_type_id": "i3.2xlarge",
-    "autoscale": {
-        "min_workers": 4,      # Baseline
-        "max_workers": 12,     # Peak load
-        "target_workers": 8    # Normal load
-    }
-}
-```
-
-**Cost Estimate**: ~$0.60/hour × 8 workers = $4.80/hour = ~$115/day (if running 24/7)
-
----
-
-**Scenario 3: 10TB/Day Pipeline**
-
-**Given**:
-- Data volume: 10TB/day = 420GB/hour = 7GB/minute
-- Processing window: 1 hour (batch)
-- Node type: i3.4xlarge (16 vCPUs, 122GB RAM)
-
-**Calculation**:
-```
-Hourly data: 420 GB
-Throughput per worker: ~500 MB/s = ~1.8 TB/hour
-Required workers: 420 GB / 1800 GB = 0.23 workers
-
-With overhead and safety:
-- Recommended: 20-30 workers (i3.4xlarge)
-
-Recommended: 25 workers (i3.4xlarge)
-Total: 400 vCPUs, 3.05 TB RAM, 95 TB disk
-```
-
-**Cluster Configuration**:
-```python
-cluster_config = {
-    "spark_version": "13.3.x-scala2.12",
-    "node_type_id": "i3.4xlarge",
-    "autoscale": {
-        "min_workers": 15,     # Baseline
-        "max_workers": 40,     # Peak load
-        "target_workers": 25    # Normal load
-    }
-}
-```
-
-**Cost Estimate**: ~$1.20/hour × 25 workers = $30/hour = ~$720/day (if running 24/7)
-
----
-
-#### 11.3 Real-World Scaling Examples
-
-**Example 1: Small E-commerce (100GB/Day)**
-
-**Data Characteristics**:
-- Sales transactions: 1M records/day
-- Average record size: 100 bytes
-- Total: ~100GB/day
-
-**Cluster Sizing**:
-```python
-# Development/Testing
-dev_cluster = {
-    "node_type_id": "i3.xlarge",
-    "num_workers": 1  # $0.30/hour
-}
-
-# Production
-prod_cluster = {
-    "node_type_id": "i3.xlarge",
-    "num_workers": 2,  # $0.60/hour
-    "autotermination_minutes": 30
-}
-```
-
-**Processing Time**: ~5-10 minutes for 100GB batch
-
----
-
-**Example 2: Medium Retail (1TB/Day)**
-
-**Data Characteristics**:
-- Sales transactions: 10M records/day
-- Customer data: 5M records/day
-- Product catalog: 1M records/day
-- Total: ~1TB/day
-
-**Cluster Sizing**:
-```python
-# Bronze Layer (Ingestion)
-bronze_cluster = {
-    "node_type_id": "i3.2xlarge",
-    "autoscale": {
-        "min_workers": 4,
-        "max_workers": 10,
-        "target_workers": 6
-    }
-}
-
-# Silver Layer (Transformation)
-silver_cluster = {
-    "node_type_id": "i3.2xlarge",
-    "autoscale": {
-        "min_workers": 4,
-        "max_workers": 12,
-        "target_workers": 8
-    }
-}
-
-# Gold Layer (Aggregation)
-gold_cluster = {
-    "node_type_id": "i3.2xlarge",
-    "autoscale": {
-        "min_workers": 2,
-        "max_workers": 8,
-        "target_workers": 4
-    }
-}
-```
-
-**Processing Time**: 
-- Bronze: ~15-20 minutes
-- Silver: ~20-30 minutes
-- Gold: ~10-15 minutes
-- **Total**: ~45-65 minutes
-
-**Daily Cost**: ~$50-80/day (job clusters, not 24/7)
-
----
-
-**Example 3: Large Enterprise (10TB/Day)**
-
-**Data Characteristics**:
-- Multiple data sources
-- Complex transformations
-- Real-time + batch processing
-- Total: ~10TB/day
-
-**Cluster Sizing**:
-```python
-# Batch Processing
-batch_cluster = {
-    "node_type_id": "i3.4xlarge",
-    "autoscale": {
-        "min_workers": 20,
-        "max_workers": 50,
-        "target_workers": 30
-    }
-}
-
-# Streaming Processing
-streaming_cluster = {
-    "node_type_id": "i3.2xlarge",
-    "autoscale": {
-        "min_workers": 8,
-        "max_workers": 20,
-        "target_workers": 12
-    }
-}
-```
-
-**Processing Time**: 
-- Batch: ~1-2 hours
-- Streaming: Continuous (real-time)
-
-**Daily Cost**: ~$500-1000/day
-
----
-
-#### 11.4 Scaling Strategies
-
-**Strategy 1: Horizontal Scaling (Scale Out)**
-
-**When to Use**: Most common, preferred approach
-
-**How It Works**:
-```
-Small Load: 2 workers
-    ↓
-Medium Load: 8 workers (add 6 workers)
-    ↓
-Large Load: 20 workers (add 12 workers)
-```
-
-**Benefits**:
-- ✅ No single point of failure
-- ✅ Better fault tolerance
-- ✅ Linear scaling (2x workers ≈ 2x throughput)
-
-**Example**:
-```python
-# Start small, scale up
-cluster_config = {
-    "autoscale": {
-        "min_workers": 2,      # Start here
-        "max_workers": 20,     # Scale up to here
-        "target_workers": 8    # Normal operation
-    }
-}
+{"node_type_id": "i3.2xlarge", "autoscale": {"min_workers": 4, "max_workers": 12, "target_workers": 8}}
 ```
 
 ---
 
-**Strategy 2: Vertical Scaling (Scale Up)**
+#### 11.3 Scaling Strategies (Summary)
 
-**When to Use**: When horizontal scaling hits limits
-
-**How It Works**:
-```
-i3.xlarge (4 vCPU, 30GB RAM)
-    ↓
-i3.2xlarge (8 vCPU, 61GB RAM)  # 2x resources
-    ↓
-i3.4xlarge (16 vCPU, 122GB RAM)  # 4x resources
-```
-
-**Benefits**:
-- ✅ Simpler (fewer nodes to manage)
-- ✅ Better for memory-intensive workloads
-- ✅ Lower network overhead
-
-**Drawbacks**:
-- ❌ Single point of failure
-- ❌ Limited by largest node size
-- ❌ More expensive per unit
-
-**Example**:
-```python
-# For memory-intensive joins
-cluster_config = {
-    "node_type_id": "r5d.4xlarge",  # Memory-optimized
-    "num_workers": 4  # Fewer, but larger nodes
-}
-```
+| Strategy | When | Idea |
+|----------|------|------|
+| **Horizontal (scale out)** | Default | Add more workers (same node type). Better fault tolerance, linear throughput. |
+| **Vertical (scale up)** | Fewer, bigger nodes | Use i3.2xlarge or i3.4xlarge (or r5d for memory). Use when you need more RAM per task or hit node count limits. |
+| **Hybrid** | Typical prod | Same node type + autoscale (e.g. i3.2xlarge with min 4, max 12). |
 
 ---
 
-**Strategy 3: Hybrid Scaling**
+#### 11.4 Throughput & Cost (High Level)
 
-**When to Use**: Best of both worlds
-
-**How It Works**:
-```
-Use larger nodes + auto-scaling
-i3.2xlarge nodes with 4-12 workers
-```
-
-**Example**:
-```python
-cluster_config = {
-    "node_type_id": "i3.2xlarge",  # Larger nodes
-    "autoscale": {
-        "min_workers": 4,
-        "max_workers": 12,
-        "target_workers": 8
-    }
-}
-```
-
----
-
-#### 11.5 Performance Benchmarks
-
-**Real-World Throughput** (i3.xlarge worker):
-
-| Operation | Throughput | Notes |
-|-----------|------------|-------|
-| **Read Parquet** | 800-1200 MB/s | Optimized format |
-| **Read JSON** | 200-400 MB/s | Slower parsing |
-| **Read CSV** | 150-300 MB/s | Slowest |
-| **Write Delta** | 500-800 MB/s | With compression |
-| **Simple Transform** | 400-600 MB/s | Filter, select |
-| **Complex Transform** | 100-300 MB/s | Joins, aggregations |
-| **Join Operations** | 50-200 MB/s | Depends on size |
-
-**Example Calculation**:
-
-**Scenario**: Process 1TB of Parquet data with simple transformations
-
-```
-Data: 1TB = 1024 GB
-Read throughput: 1000 MB/s per worker = 3.6 TB/hour = 3600 GB/hour
-Workers needed: 1024 GB / 3600 GB = 0.28 workers
-
-With overhead (30%) and safety (2x):
-Required: 0.28 × 1.3 × 2 = 0.73 workers ≈ 1 worker
-
-But for reliability: Use 2-4 workers
-```
-
----
-
-#### 11.6 Cost Optimization at Scale
-
-**Cost Factors**:
-1. **Cluster Size**: More workers = higher cost
-2. **Node Type**: Larger nodes = higher cost per hour
-3. **Runtime**: Longer jobs = higher cost
-4. **Idle Time**: Clusters running idle = wasted cost
-
-**Cost Optimization Strategies**:
-
-**Strategy 1: Right-Size Clusters**
-```python
-# Bad: Over-provisioned
-cluster = {"num_workers": 20}  # For 100GB/day (overkill!)
-
-# Good: Right-sized
-cluster = {"num_workers": 2}  # For 100GB/day (perfect!)
-```
-
-**Strategy 2: Use Job Clusters**
-```python
-# Bad: All-purpose cluster running 24/7
-# Cost: $0.30/hour × 24 hours = $7.20/day
-
-# Good: Job cluster (runs 1 hour/day)
-# Cost: $0.30/hour × 1 hour = $0.30/day
-# Savings: 96%!
-```
-
-**Strategy 3: Auto-Scaling**
-```python
-# Bad: Fixed size (always max)
-cluster = {"num_workers": 20}  # Always $6/hour
-
-# Good: Auto-scaling
-cluster = {
-    "autoscale": {
-        "min_workers": 2,   # $0.60/hour (idle)
-        "max_workers": 20,  # $6/hour (peak)
-        "target_workers": 8 # $2.40/hour (normal)
-    }
-}
-# Average cost: ~$2/hour (67% savings!)
-```
-
-**Strategy 4: Spot Instances** (for non-critical jobs)
-```python
-# Regular: $0.30/hour
-# Spot: $0.09/hour (70% savings!)
-
-cluster_config = {
-    "node_type_id": "i3.xlarge",
-    "aws_attributes": {
-        "availability": "SPOT",
-        "spot_bid_price_percent": 100
-    }
-}
-```
-
----
-
-#### 11.7 Monitoring & Tuning
-
-**Key Metrics to Monitor**:
-
-1. **Cluster Utilization**:
-   - CPU usage: Should be 60-80% (not 100%, not 10%)
-   - Memory usage: Should be 70-85%
-   - Disk I/O: Monitor read/write throughput
-
-2. **Job Performance**:
-   - Processing time per GB
-   - Tasks per second
-   - Shuffle read/write
-
-3. **Cost Metrics**:
-   - DBU (Databricks Units) per job
-   - Cost per GB processed
-   - Idle time percentage
-
-**Tuning Based on Metrics**:
-
-**If CPU < 50%**:
-```python
-# Downsize cluster
-cluster = {"num_workers": 4}  # Was 8
-```
-
-**If CPU > 90%**:
-```python
-# Upsize cluster
-cluster = {"num_workers": 12}  # Was 8
-```
-
-**If Memory > 90%**:
-```python
-# Use larger nodes or more workers
-cluster = {
-    "node_type_id": "i3.2xlarge",  # More memory
-    "num_workers": 8
-}
-```
+- **Throughput**: Parquet/Delta read fastest; CSV/JSON slower. Joins and complex transforms reduce effective throughput. One compact table is enough for interviews; details are in docs.
+- **Cost**: Right-size (avoid 20 workers for 100 GB/day). Prefer **job clusters** (spin up, run, terminate) over 24/7 all-purpose. Use **autoscaling** (min/target/max). **Spot** for non-critical jobs can cut cost significantly (e.g. ~70% vs on-demand).
+- **Monitoring**: Watch CPU (aim 60–80%) and memory (aim 70–85%). If CPU low → reduce workers; if CPU or memory saturated → add workers or bigger nodes.
 
 ---
 
