@@ -377,4 +377,4 @@ union all
 
 ---
 
-*More questions can be added below using the same format: question → collapsed answer (solution, thought process, notes).*
+*More questions can be added above. DataLemur questions are in [datalemur-sql-questions.md](datalemur-sql-questions.md).*
