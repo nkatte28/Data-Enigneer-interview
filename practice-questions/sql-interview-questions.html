@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQL Interview Questions & Answers</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 2rem;
+      color: #1a1a1a;
+      background: #f8f9fa;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+      color: #111;
+    }
+    .subtitle { color: #555; font-size: 0.95rem; margin-bottom: 2rem; }
+    .question-card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      border: 1px solid #e0e0e0;
+    }
+    .question-card h2 {
+      font-size: 1rem;
+      margin: 0 0 0.75rem 0;
+      color: #1a1a1a;
+      font-weight: 600;
+    }
+    .question-text {
+      margin-bottom: 1rem;
+      color: #333;
+    }
+    .expected-output {
+      font-size: 0.9rem;
+      color: #555;
+      margin-bottom: 1rem;
+    }
+    .expected-output strong { color: #333; }
+    details {
+      margin-top: 0.5rem;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fafafa;
+    }
+    summary {
+      padding: 0.75rem 1rem;
+      cursor: pointer;
+      font-weight: 600;
+      color: #0d47a1;
+      user-select: none;
+      list-style: none;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after {
+      content: " ▶";
+      font-size: 0.75rem;
+      color: #666;
+    }
+    details[open] summary::after { content: " ▼"; }
+    .answer-inner {
+      padding: 0 1rem 1rem 1rem;
+      border-top: 1px solid #e0e0e0;
+    }
+    .answer-section {
+      margin-top: 1rem;
+    }
+    .answer-section:first-child { margin-top: 1rem; }
+    .answer-section h3 {
+      font-size: 0.85rem;
+      margin: 0 0 0.35rem 0;
+      color: #333;
+      font-weight: 600;
+    }
+    .answer-section p {
+      margin: 0 0 0.5rem 0;
+      color: #444;
+      font-size: 0.95rem;
+    }
+    pre, code {
+      font-family: ui-monospace, "Cascadia Code", "Source Code Pro", monospace;
+      font-size: 0.85rem;
+    }
+    pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 0.35rem 0 0 0;
+    }
+    code { background: #eee; padding: 0.15em 0.4em; border-radius: 4px; }
+    pre code { background: none; padding: 0; }
+    .note {
+      background: #fff8e1;
+      border-left: 4px solid #f9a825;
+      padding: 0.6rem 0.75rem;
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+      color: #5d4e00;
+    }
+  </style>
+</head>
+<body>
+  <h1>SQL Interview Questions & Answers</h1>
+  <p class="subtitle">Click "Show solution and explanation" to reveal the answer.</p>
+
+  <!-- Question 1 -->
+  <article class="question-card">
+    <h2>Q1. Cumulative amount spent per customer by order date</h2>
+    <p class="question-text">
+      Write an SQL query that returns each order along with the cumulative amount spent by that customer up to that order date.
+    </p>
+    <p class="expected-output">
+      <strong>Expected output columns:</strong><br>
+      order_id, customer_id, order_date, amount, cumulative_spend
+    </p>
+
+    <details>
+      <summary>Show solution and explanation</summary>
+      <div class="answer-inner">
+        <div class="answer-section">
+          <h3>Solution</h3>
+          <pre><code>select
+  order_id,
+  customer_id,
+  order_date,
+  amount,
+  sum(amount) over (
+    partition by customer_id
+    order by order_date
+  ) as cumulative_spend
+from orders;</code></pre>
+        </div>
+        <div class="answer-section">
+          <h3>Thought process</h3>
+          <p>
+            “Cumulative … by that customer up to that order date” means: for each row, sum all <code>amount</code> for the same <code>customer_id</code> where <code>order_date</code> is on or before the current row’s date. That’s a window sum: <code>SUM(amount) OVER (PARTITION BY customer_id ORDER BY order_date)</code>. No <code>ROWS</code> or <code>RANGE</code> is specified, so the default is <code>RANGE UNBOUNDED PRECEDING</code> (all rows from the start of the partition up to the current row), which gives the running total per customer by date.
+          </p>
+        </div>
+        <div class="answer-section">
+          <h3>Performance note (senior-level)</h3>
+          <p>On large tables:</p>
+          <ul style="margin: 0.25rem 0 0 1rem; color: #444; font-size: 0.95rem;">
+            <li>Make sure <code>customer_id</code> and <code>order_date</code> are indexed / clustered.</li>
+            <li>In Spark/Databricks: repartition by <code>customer_id</code> before the window.</li>
+          </ul>
+        </div>
+      </div>
+    </details>
+  </article>
+
+  <p style="color: #888; font-size: 0.85rem;">More questions will be added below. Use the same format: question → collapsed answer (solution, thought process, notes).</p>
+</body>
+</html>
