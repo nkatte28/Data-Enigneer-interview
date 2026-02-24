@@ -202,4 +202,179 @@ where rnk = 2;
 
 ---
 
+## Q6. Top earner(s) per department with rank and dept size
+
+**Question:** Return only the top earner(s) per department (ties allowed), and also include `salary_rank_in_dept` and `dept_employee_count`.
+
+**Output columns:**  
+`dept`, `emp_id`, `salary`, `salary_rank_in_dept`, `dept_employee_count`
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution
+
+```sql
+select dept, emp_id, salary, salary_rank_in_dept, dept_employee_count
+from (
+  select
+    dept,
+    emp_id,
+    salary,
+    dense_rank() over (
+      partition by dept
+      order by salary desc
+    ) as salary_rank_in_dept,
+    count(emp_id) over (
+      partition by dept
+    ) as dept_employee_count
+  from employee_salary
+) es
+where salary_rank_in_dept = 1;
+```
+
+### Thought process
+
+- **Top earner(s) per dept, ties allowed:** Rank by salary descending within each dept; keep rank = 1. Use `DENSE_RANK()` so everyone with the max salary gets 1 and we return all of them.
+- **`salary_rank_in_dept`:** That same `DENSE_RANK()` column—we just expose it in the output.
+- **`dept_employee_count`:** Count of employees in that dept. `COUNT(emp_id) OVER (PARTITION BY dept)` with no `ORDER BY` gives the same total for every row in the partition (whole dept), so each top earner row gets the correct dept size.
+
+</details>
+
+---
+
+## Q7. Customers whose second-highest distinct order amount > 150
+
+**Question:** Return customers whose **second-highest distinct** order amount is greater than 150.
+
+**Output columns:**  
+`customer_id`, `second_highest_amount`
+
+**Variant:** Ensure **1 row per customer** even if multiple orders share that second-highest amount.
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution (multiple rows per customer allowed)
+
+If you can return one row per order that has the 2nd-highest amount (so a customer with three orders at the 2nd-highest amount appears three times):
+
+```sql
+select customer_id, amount as second_highest_amount
+from (
+  select
+    customer_id,
+    amount,
+    dense_rank() over (
+      partition by customer_id
+      order by amount desc
+    ) as amt_rank
+  from orders
+) o
+where amt_rank = 2
+  and amount > 150;
+```
+
+### Solution (exactly 1 row per customer)
+
+If multiple orders share the 2nd-highest amount and you still want **one row per customer**:
+
+```sql
+select customer_id, amount as second_highest_amount
+from (
+  select
+    customer_id,
+    amount,
+    dense_rank() over (partition by customer_id order by amount desc) as amt_rank,
+    row_number() over (partition by customer_id, amount order by order_date desc, order_id desc) as rn
+  from orders
+) o
+where amt_rank = 2
+  and rn = 1
+  and amount > 150;
+```
+
+### Thought process
+
+- **Second-highest distinct amount:** `DENSE_RANK() OVER (PARTITION BY customer_id ORDER BY amount DESC)` gives 1 for max, 2 for second-highest distinct value. Filter `amt_rank = 2` and `amount > 150`.
+- **First solution:** Returns every *order* row that has the 2nd-highest amount per customer (so multiple rows per customer if they have multiple orders at that amount).
+- **Second solution:** Within each customer and that 2nd-highest amount, we need exactly one row. Add `ROW_NUMBER() OVER (PARTITION BY customer_id, amount ORDER BY order_date DESC, order_id DESC)` so we assign 1, 2, 3… among rows that share the same (customer_id, amount). Filter `rn = 1` to keep one representative row per customer (e.g. latest order by date/id). Result: one row per customer with their second-highest amount when it’s > 150.
+
+</details>
+
+---
+
+## Q8. Shortest and longest city names in STATION
+
+**Question:** Query the two cities in `STATION` with the **shortest** and **longest** `CITY` names, plus their respective lengths (number of characters). If there is more than one smallest or largest city, choose the one that comes first when ordered alphabetically.
+
+**Output:** Two rows total: one for shortest-name city (with length), one for longest-name city (with length). Typically shown as `city`, `city_length` (or `length(city)`).
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution 1: Subquery for min/max length + UNION ALL
+
+```sql
+select city, length(city) as city_length
+from station
+where length(city) = (select min(length(city)) from station)
+order by city
+limit 1
+
+union all
+
+select city, length(city)
+from station
+where length(city) = (select max(length(city)) from station)
+order by city
+limit 1;
+```
+
+### Solution 2: Window functions (one scan)
+
+```sql
+select city, city_length
+from (
+  select
+    city,
+    length(city) as city_length,
+    row_number() over (order by length(city), city) as rn_short,
+    row_number() over (order by length(city) desc, city) as rn_long
+  from station
+) t
+where rn_short = 1 or rn_long = 1;
+```
+
+### Solution 3: ORDER BY + LIMIT 1 twice, UNION ALL
+
+```sql
+(
+  select city, length(city) as city_length
+  from station
+  order by length(city), city
+  limit 1
+)
+union all
+(
+  select city, length(city) as city_length
+  from station
+  order by length(city) desc, city
+  limit 1
+);
+```
+
+### Thought process
+
+- **Shortest name:** Min of `LENGTH(city)`; tie-break: first alphabetically → `ORDER BY length(city), city LIMIT 1` (or filter `length(city) = (SELECT MIN(length(city)) ...)` then `ORDER BY city LIMIT 1`).
+- **Longest name:** Max of `LENGTH(city)`; same tie-break → `ORDER BY length(city) DESC, city LIMIT 1`.
+- **Two rows:** Combine the two with `UNION ALL` (no dedup needed).
+- **Solution 1:** Uses scalar subqueries to get min/max length, then filters and picks one row per extreme with `ORDER BY city LIMIT 1`. Clear but two subqueries.
+- **Solution 2:** One pass over `station` with two `ROW_NUMBER()` windows—one for shortest (`ORDER BY length(city), city`), one for longest (`ORDER BY length(city) DESC, city`). `rn_short = 1` gives shortest (first alphabetically); `rn_long = 1` gives longest (first alphabetically). Good for one table scan.
+- **Solution 3:** Two independent queries, each with its own `ORDER BY ... LIMIT 1`, then `UNION ALL`. Simple and portable (works in engines where `ORDER BY` in a subquery is respected for `LIMIT`).
+
+</details>
+
+---
+
 *More questions can be added below using the same format: question → collapsed answer (solution, thought process, notes).*
