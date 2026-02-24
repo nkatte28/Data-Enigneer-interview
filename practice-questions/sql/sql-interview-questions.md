@@ -44,4 +44,45 @@ On large tables:
 
 ---
 
+## Q2. Highest spending order(s) per customer
+
+**Question:** Write an SQL query that returns the highest spending order(s) per customer. If a customer has multiple orders tied for highest amount, return all tied orders.
+
+**Output columns:**  
+`customer_id`, `order_id`, `amount`
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution
+
+```sql
+select customer_id, order_id, amount
+from (
+  select
+    customer_id,
+    order_id,
+    amount,
+    dense_rank() over (
+      partition by customer_id
+      order by amount desc
+    ) as rnk
+  from orders
+) r
+where rnk = 1;
+```
+
+### Thought process
+
+We need "highest spending order(s)" per customer and **all tied orders** when there's a tie. So we rank orders by `amount` descending within each `customer_id`, then keep only the top rank.
+
+**Reason for using `DENSE_RANK()`:**  
+- `DENSE_RANK()` assigns the same rank to rows with the same `amount` (e.g. two orders of $100 both get 1) and leaves no gap (next distinct amount gets 2). So `WHERE rnk = 1` returns every order that is tied for the max amount per customer.  
+- `RANK()` would also give ties the same rank, so it would work here too.  
+- `ROW_NUMBER()` would arbitrarily assign 1, 2, 3… and only one row per customer would get 1, so we’d miss tied top orders. So we use `DENSE_RANK()` (or `RANK()`) to include all ties.
+
+</details>
+
+---
+
 *More questions can be added below using the same format: question → collapsed answer (solution, thought process, notes).*
