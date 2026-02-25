@@ -568,4 +568,92 @@ HAVING ARRAY_AGG(DISTINCT product_category ORDER BY product_category) = (
 
 ---
 
+## Q11. Odd- vs even-numbered measurements per day (DataLemur)
+
+**Question:** Write a query to calculate the **sum of odd-numbered** and **sum of even-numbered** measurements **separately** for each day, and display the results in two columns.
+
+**Definition:** Within a day, the **1st, 3rd, 5th** measurements (by time) are **odd-numbered**; the **2nd, 4th, 6th** are **even-numbered**.
+
+**Output columns:**  
+`measurement_day`, `odd_sum`, `even_sum`
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution
+
+```sql
+WITH ranked_measurements AS (
+  SELECT
+    CAST(measurement_time AS DATE) AS measurement_day,
+    measurement_value,
+    ROW_NUMBER() OVER (
+      PARTITION BY CAST(measurement_time AS DATE)
+      ORDER BY measurement_time
+    ) AS measurement_num
+  FROM measurements
+)
+SELECT
+  measurement_day,
+  SUM(CASE WHEN measurement_num % 2 != 0 THEN measurement_value ELSE 0 END) AS odd_sum,
+  SUM(CASE WHEN measurement_num % 2 = 0 THEN measurement_value ELSE 0 END) AS even_sum
+FROM ranked_measurements
+GROUP BY measurement_day;
+```
+
+### Thought process
+
+- **Assign position within each day:** For each row, we need "1st, 2nd, 3rd…" by time on that day. Use **ROW_NUMBER() OVER (PARTITION BY CAST(measurement_time AS DATE) ORDER BY measurement_time)** so the earliest measurement that day is 1, next is 2, etc. Cast to DATE so all timestamps on the same calendar day are in one partition.
+- **Odd vs even:** Odd positions (1, 3, 5, …) → `measurement_num % 2 != 0`; even (2, 4, 6, …) → `measurement_num % 2 = 0`.
+- **Sums per day:** Group by `measurement_day`. Use **SUM(CASE WHEN … THEN measurement_value ELSE 0 END)** twice: once for odd positions (odd_sum), once for even (even_sum). Result: one row per day with odd_sum and even_sum.
+
+</details>
+
+---
+
+## Q12. Correct swapped delivery items (Zomato / DataLemur)
+
+**Question:** Due to an error, each item's order was **swapped with the item in the next row**. Correct this and return the proper pairing of **order_id** and **item**. If the **last** order_id is **odd**, that row stays unchanged (no swap); otherwise pairs are (1↔2), (3↔4), etc.
+
+**Example:** After correction, order_id 1 should show the item that was in row 2, order_id 2 the item that was in row 1, and so on. Last row (e.g. order_id 7) if odd remains as-is.
+
+**Output columns:**  
+`order_id`, `item` (corrected)
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution
+
+```sql
+WITH x AS (
+  SELECT
+    order_id,
+    item,
+    LEAD(item) OVER (ORDER BY order_id) AS next_item,
+    LAG(item) OVER (ORDER BY order_id) AS prev_item,
+    MAX(order_id) OVER () AS max_id
+  FROM orders
+)
+SELECT
+  order_id,
+  CASE
+    WHEN order_id % 2 = 1 AND order_id <> max_id THEN next_item
+    WHEN order_id % 2 = 0 THEN prev_item
+    ELSE item
+  END AS item
+FROM x
+ORDER BY order_id;
+```
+
+### Thought process
+
+- **Swap logic:** Rows were shifted: row 1 got row 2's item, row 2 got row 1's item, etc. So for **odd** order_id (1, 3, 5…), the corrected item is the **next** row's item; for **even** order_id (2, 4, 6…), the corrected item is the **previous** row's item. Exception: if the **last** order_id is odd, it has no "next" and stays as-is.
+- **LEAD/LAG:** `LEAD(item) OVER (ORDER BY order_id)` = item from the next order_id; `LAG(item) OVER (ORDER BY order_id)` = item from the previous order_id. We need `max_id` to detect the last row: `MAX(order_id) OVER ()`.
+- **CASE:** (1) Odd and not last → use `next_item`. (2) Even → use `prev_item`. (3) Else (odd and last) → keep `item`. Output order_id and this corrected item, ordered by order_id.
+
+</details>
+
+---
+
 *More DataLemur questions can be added below.*
