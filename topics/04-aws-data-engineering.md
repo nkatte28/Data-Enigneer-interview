@@ -24,10 +24,10 @@
 
 ### Part 5: Security & Networking
 13. [IAM - Identity & Access Management](#13-iam---identity--access-management)
-14. [VPC & Networking](#14-vpc--networking)
+14. [VPC & Networking](#13-vpc--networking) (incl. CloudFront, VPC endpoints)
 
 ### Part 6: Integration & Optimization
-15. [Connecting Services Together](#15-connecting-services-together)
+15. [Connecting Services Together](#14-connecting-services-together) (incl. [Multi-Cloud: AWS + Databricks](#145-multi-cloud-integration-aws--databricks), [Real-World Scenarios](#146-real-world-data-engineering-scenarios))
 16. [Cost Optimization](#16-cost-optimization)
 17. [Performance Tuning](#17-performance-tuning)
 
@@ -49,7 +49,10 @@ By the end of this topic, you should be able to:
 - Design real-time streaming with Kinesis
 - Query data with Athena and Redshift
 - Orchestrate workflows with Step Functions
-- Implement security with IAM
+- Implement security with IAM and VPC (subnets, endpoints, security groups)
+- Use CloudFront for APIs and dashboards; EventBridge and Secrets Manager where relevant
+- Integrate AWS with Databricks (S3 lake, optional Glue Catalog) for multi-engine analytics
+- Relate real-world scenarios (retail, healthcare, media) to architecture choices
 - Optimize costs and performance
 - Design scalable data architectures on AWS
 
@@ -2014,19 +2017,82 @@ iam_client.put_role_policy(
 ### 13. VPC & Networking
 
 **What is VPC?**
-Virtual Private Cloud - isolated network for AWS resources.
+Virtual Private Cloud (VPC) is your isolated network in AWS. For data engineering, VPC controls how Glue, EMR, Redshift, Lambda, and other services talk to each other and to S3—often without sending traffic over the public internet.
 
-**Key Concepts**:
-- **VPC**: Virtual network
-- **Subnet**: Sub-network within VPC
-- **Security Group**: Firewall rules
-- **NAT Gateway**: Internet access for private subnets
+**Key concepts**:
+- **VPC**: Isolated network (CIDR, e.g. 10.0.0.0/16)
+- **Subnet**: Segment of VPC (e.g. 10.0.1.0/24). **Public** = has internet gateway; **Private** = no direct internet, use NAT for outbound
+- **Security Group**: Stateful firewall (allow/deny by port and source)
+- **NACL**: Optional subnet-level stateless firewall
+- **NAT Gateway**: Gives private subnets outbound internet (e.g. for updates, external APIs)
 
-**VPC Best Practices**:
-- ✅ Use private subnets for data processing
-- ✅ Use security groups for access control
-- ✅ Use VPC endpoints for S3 access (no internet)
-- ✅ Enable VPC Flow Logs for monitoring
+**Why VPC matters for data engineering**:
+- Glue, EMR, and Lambda run inside your VPC (or VPC-attached). Redshift clusters live in a subnet. Keeping them in **private subnets** improves security.
+- **VPC endpoints** let services reach S3, Glue, Athena, Redshift, or Kinesis without going over the internet—lower latency, no NAT cost, and traffic stays on the AWS network.
+
+**Typical data-engineering layout**:
+```
+VPC (10.0.0.0/16)
+├── Private subnet A (Glue, EMR, Lambda)
+│   └── S3 / Glue / Athena via VPC endpoints (no internet)
+├── Private subnet B (Redshift, RDS if used)
+│   └── S3 via VPC endpoint for COPY/UNLOAD
+└── Public subnet (optional: NAT Gateway, bastion)
+```
+
+**VPC endpoints (two types)**:
+- **Gateway endpoint**: For S3 and DynamoDB only. Free, no NAT. Attach to route tables; traffic to S3 stays in AWS.
+- **Interface endpoint (PrivateLink)**: For Glue, Athena, Kinesis, Redshift Data API, Secrets Manager, etc. Uses ENIs in your subnets; you pay per AZ/hour and data processed. Use when you want private access without NAT/internet.
+
+**Example: S3 gateway endpoint (no internet for S3)**:
+```python
+# Create gateway endpoint for S3 (boto3)
+ec2 = boto3.client('ec2')
+ec2.create_vpc_endpoint(
+    VpcId='vpc-xxxxx',
+    ServiceName='com.amazonaws.us-east-1.s3',
+    RouteTableIds=['rtb-xxxxx'],
+    VpcEndpointType='Gateway'
+)
+# Now Glue/EMR/Lambda in private subnet can reach S3 without NAT/internet
+```
+
+**Security groups for data services**:
+- **Glue**: Allow outbound to S3 (or use endpoint), and to Glue/Athena if using interface endpoints. Restrict inbound to only what’s needed (e.g. no 0.0.0.0/0).
+- **EMR**: Allow master/worker communication (e.g. 0–65535 within security group), and outbound to S3 and optional endpoints.
+- **Redshift**: Allow inbound 5439 from BI/ETL only (e.g. specific security group or CIDR), outbound to S3 for COPY/UNLOAD.
+
+**VPC best practices for data engineering**:
+- ✅ Put Glue, EMR, Lambda, Redshift in **private subnets** where possible.
+- ✅ Use **S3 gateway endpoint** (and DynamoDB if needed) to avoid NAT and internet for S3.
+- ✅ Use **interface endpoints** for Glue, Athena, Kinesis, Secrets Manager if you need private access.
+- ✅ Enable **VPC Flow Logs** for troubleshooting and compliance.
+- ✅ Use **security groups** with least privilege (no 0.0.0.0/0 unless required).
+
+---
+
+#### 13.1 CloudFront (CDN) for Data & APIs
+
+**What is CloudFront?**
+Amazon CloudFront is a CDN (content delivery network): it caches content at edge locations and can terminate HTTPS. For data engineering it’s useful for **APIs and dashboards**, not for moving bulk data.
+
+**Data-engineering use cases**:
+- **API in front of data**: Lambda (or API Gateway + Lambda) that returns aggregated or cached query results; CloudFront caches responses by URL/query string to reduce load and latency for repeated queries.
+- **Dashboards and static assets**: Serve BI dashboards (e.g. QuickSight embedded, or static exports), login pages, or small assets from S3 or Lambda@Edge with low latency worldwide.
+- **Secure delivery**: Restrict access with signed URLs or signed cookies; use OAC (Origin Access Control) so only CloudFront can read from S3 (no direct S3 public access).
+
+**What CloudFront is not for**:
+- ❌ Bulk data transfer (use S3 transfer acceleration or direct S3 if needed).
+- ❌ Replacing S3/Glue/Redshift for ETL or analytics storage.
+
+**Example: Cache API responses from Lambda**:
+- Origin: API Gateway + Lambda that queries Athena/Redshift or reads from S3.
+- CloudFront distribution with that API as origin; set TTL (e.g. 60–300 seconds) for cacheable GET responses. Repeated requests for the same URL get a cached response at the edge.
+
+**Other AWS services useful in data engineering**:
+- **EventBridge**: Event bus for event-driven pipelines (e.g. “file landed in S3”, “Glue job finished”). Triggers Lambda, Step Functions, or other targets. Use instead of or in addition to S3 event notifications when you need routing, filtering, or multiple consumers.
+- **Secrets Manager**: Store DB credentials, API keys; Glue/EMR/Lambda/Redshift can retrieve secrets at runtime. Prefer over hardcoding or plain environment variables.
+- **QuickSight**: BI and dashboards on top of S3, Athena, Redshift. Embed dashboards in apps; use SPICE for fast in-memory analytics.
 
 ---
 
@@ -2073,6 +2139,92 @@ def lambda_handler(event, context):
         input=json.dumps({'s3_path': event['Records'][0]['s3']['object']['key']})
     )
 ```
+
+---
+
+### 14.5 Multi-Cloud Integration: AWS + Databricks
+
+Many organizations use **AWS for storage and ingestion** and **Databricks for processing and analytics** in the same data lake. Databricks on AWS runs in your VPC and reads/writes S3 natively, so you get a single lake (S3) with multiple engines.
+
+**Why AWS + Databricks together**:
+- **S3 as single source of truth**: Ingest with Kinesis, Glue, or Lambda; store raw and curated data in S3. Databricks reads the same S3 paths for Spark/Delta.
+- **Best of both**: Use AWS for serverless ETL (Glue), streaming (Kinesis), and warehouse (Redshift/Athena); use Databricks for advanced Spark, ML, and Delta Lake without re-ingesting.
+- **Optional shared catalog**: Databricks can use **AWS Glue Data Catalog** as the metastore, so tables created by Glue or Athena are visible in Databricks and vice versa (with configuration).
+
+**Architecture: Data lake on S3, processed by both Glue and Databricks**:
+```
+                    ┌─────────────────────────────────────────────────────────┐
+                    │  Ingestion (AWS)                                        │
+                    │  Kinesis / S3 events / Lambda / Glue Crawler            │
+                    └───────────────────────────┬─────────────────────────────┘
+                                              ↓
+                    ┌─────────────────────────────────────────────────────────┐
+                    │  S3 Data Lake (single source of truth)                   │
+                    │  s3://bucket/bronze/  s3://bucket/silver/  s3://.../gold/│
+                    └───────────┬─────────────────────────────┬─────────────────┘
+                                │                             │
+              ┌─────────────────┘                             └─────────────────┐
+              ↓                                                                   ↓
+   ┌──────────────────────┐                                        ┌──────────────────────┐
+   │  AWS (Glue / Athena  │                                        │  Databricks on AWS   │
+   │  Redshift)           │                                        │  (Spark, Delta, ML)  │
+   │  - Glue ETL → S3     │                                        │  - Read/write S3     │
+   │  - Athena query S3   │                                        │  - Delta on S3       │
+   │  - Redshift COPY S3  │                                        │  - Optional: Glue   │
+   └──────────────────────┘                                        │    Data Catalog     │
+                                                                     └──────────────────────┘
+```
+
+**Real-world scenario 1: Hybrid ETL — Glue for simple, Databricks for heavy**
+- **Setup**: Raw data lands in S3 (e.g. from Kinesis Firehose or batch uploads). Glue Crawler catalogs it; Glue jobs do light cleansing and write to `s3://bucket/silver/` in Parquet.
+- **Databricks**: Reads from `s3://bucket/silver/`, runs Spark jobs (joins, ML, Delta), writes Delta tables under `s3://bucket/gold/`. Same S3 bucket; no copy of raw data.
+- **Use case**: Standard ETL in Glue (low ops), complex pipelines and ML in Databricks.
+
+**Real-world scenario 2: Redshift + Databricks on the same S3 lake**
+- **Setup**: S3 holds bronze/silver/gold (Parquet/Delta). Redshift Spectrum or external tables point to S3 for ad-hoc SQL. Redshift also loads key tables via COPY from S3 for fast dashboards.
+- **Databricks**: Runs batch and streaming jobs, writes aggregated/ML outputs to S3 (Delta). Analysts use Athena or Redshift to query; data scientists use Databricks on the same paths.
+- **Use case**: Operational reporting in Redshift/Athena; advanced analytics and ML in Databricks; one lake, multiple query engines.
+
+**Config: Databricks reading S3 (with IAM)**:
+```python
+# In Databricks (AWS): use instance profile or IAM role for S3
+# Spark config (or cluster config)
+spark.conf.set("spark.databricks.delta.preview.enabled", "true")
+
+# Read from S3 (same bucket Glue writes to)
+df = spark.read.format("parquet").load("s3://my-data-bucket/silver/sales/")
+
+# Write Delta on S3
+df.write.format("delta").mode("overwrite").save("s3://my-data-bucket/gold/sales_daily/")
+```
+
+**Using Glue Data Catalog from Databricks** (optional):
+- In Databricks workspace settings, set the metastore to use **AWS Glue**. Then tables created in Glue or Athena (e.g. from Glue Crawler) appear in Databricks; tables created in Databricks can be exposed to Athena/Glue. Keeps one catalog across AWS and Databricks.
+
+**Summary**:
+- ✅ S3 as shared lake; AWS services and Databricks read/write the same paths.
+- ✅ Use Glue for catalog and simple ETL; Databricks for Spark, Delta, ML.
+- ✅ Redshift/Athena for SQL; Databricks for advanced analytics—all on top of S3.
+- ✅ Optionally unify metadata with Glue Data Catalog as the metastore for Databricks.
+
+---
+
+### 14.6 Real-World Data Engineering Scenarios
+
+**Scenario A: Retail — batch and streaming with a single lake**
+- **Goal**: Ingest store and online sales (batch files + Kafka), clean and aggregate, serve to BI and ML.
+- **Flow**: (1) Batch files land in S3 (bronze); Kafka → Kinesis Data Streams → Lambda or Firehose → S3 (bronze). (2) Glue jobs run on a schedule: bronze → silver (cleaned, partitioned by date). (3) Aggregations and ML features in Databricks or Glue → gold on S3. (4) Redshift Spectrum or Athena query gold; Redshift also COPYs key tables for dashboards. (5) Step Functions or EventBridge orchestrate Glue and notify on failure.
+- **Takeaway**: One S3 lake; Kinesis + Glue for ingestion and ETL; add Databricks or Redshift as needed for analytics.
+
+**Scenario B: Healthcare — governed lake with multiple consumers**
+- **Goal**: Ingest HL7/EDI and application events; store in a governed lake; support analytics and reporting without duplicating PHI.
+- **Flow**: (1) Events land in S3 with encryption (SSE-KMS) and bucket policies restricting access by IAM. (2) Glue Crawler catalogs data; Glue jobs apply masking or de-identification and write to silver/gold. (3) Lake Formation (or IAM + Glue) controls who can see which tables. (4) Athena and Redshift Spectrum query only allowed tables; Databricks uses the same S3 paths with the same IAM/Lake Formation policies. (5) Audit via CloudTrail and VPC Flow Logs.
+- **Takeaway**: Encryption, access control, and a single catalog (Glue) with multiple engines (Glue, Athena, Redshift, Databricks) on one lake.
+
+**Scenario C: Media — real-time events and batch backfill**
+- **Goal**: Stream click/play events in real time; backfill historical data; serve both to analytics and ML.
+- **Flow**: (1) Kinesis Data Streams (or Firehose) for real-time events → S3 (partitioned by hour). (2) Lambda or Glue for light normalization → silver. (3) Batch backfill: historical files in S3; Glue or EMR for large backfills into the same silver/gold layout. (4) Athena for ad-hoc SQL; Databricks for sessionization and ML. (5) CloudFront in front of an API that serves pre-aggregated metrics (cached) for dashboards.
+- **Takeaway**: Kinesis + S3 for streaming and batch; same schema and partitions; use CloudFront only for API/dashboard caching, not bulk data.
 
 ---
 
