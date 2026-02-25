@@ -311,4 +311,261 @@ LEFT JOIN texts t
 
 ---
 
+## Q7. Fill null category in products (Accenture / DataLemur)
+
+**Question:** The `category` column in the `products` table has nulls. Write a query that returns the product table with **all category values filled in**, assuming:
+- The **first product in each category** always has a defined (non-null) category.
+- Each category appears only once in the column; products in the same category are **grouped together by sequential product_id** (e.g. product 1 = Shoes, then 2 and 3 are Shoes; product 4 = Jeans, then 5 is Jeans; etc.).
+
+**Table: `products`**
+
+| Column     | Type    |
+|------------|---------|
+| product_id | integer |
+| category   | varchar |
+| name       | varchar |
+
+**Example input:** product_id 1 has category 'Shoes', 2 and 3 null; 4 has 'Jeans', 5 null; 6 has 'Shirts', 7 null.
+
+**Example output:** All rows with category filled (1–3 = Shoes, 4–5 = Jeans, 6–7 = Shirts).
+
+**Output columns:**  
+`product_id`, `category`, `name`
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution
+
+```sql
+SELECT
+  product_id,
+  COALESCE(
+    category,
+    MAX(category) OVER (PARTITION BY numbered_category)
+  ) AS category,
+  name
+FROM (
+  SELECT
+    *,
+    COUNT(category) OVER (ORDER BY product_id) AS numbered_category
+  FROM products
+) AS filled_category;
+```
+
+### Thought process
+
+- **Group rows by “category block”:** Products in the same category are consecutive by `product_id`. The first row in each block has non-null `category`; the rest are null. We need a label that is the same for all rows in the same block. Use **COUNT(category) OVER (ORDER BY product_id)**. In standard SQL, COUNT(category) counts non-null values; with ORDER BY product_id, it’s a running count of how many non-null categories we’ve seen so far. So: product 1 (Shoes) → count 1; products 2, 3 (null) → still 1; product 4 (Jeans) → count 2; product 5 (null) → 2; product 6 (Shirts) → 3; product 7 (null) → 3. So `numbered_category` identifies each block (1, 1, 1, 2, 2, 3, 3).
+- **Fill nulls:** Within each block, the first row has the category. So take **MAX(category) OVER (PARTITION BY numbered_category)** — the only non-null in that partition is that first row’s category, so MAX gives it. Then **COALESCE(category, that_max)**: rows that already have category stay as-is; nulls get the block’s category.
+- **Result:** Every row gets the correct category; output columns product_id, category, name.
+
+</details>
+
+---
+
+## Q8. Top 2 drugs per manufacturer by units sold (CVS Health / DataLemur)
+
+**Question:** CVS Health wants to understand pharmacy sales and how well different drugs sell. Write a query to find the **top 2 drugs sold** (by units sold) for **each manufacturer**. List results in alphabetical order by manufacturer.
+
+**Output columns:**  
+`manufacturer`, `top_drugs` (or drug name). If there are ties for 2nd place, include all tied drugs (more than 2 rows per manufacturer allowed).
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution
+
+```sql
+SELECT manufacturer, drug AS top_drugs
+FROM (
+  SELECT
+    manufacturer,
+    drug,
+    DENSE_RANK() OVER (PARTITION BY manufacturer ORDER BY units_sold DESC) AS rnk
+  FROM pharmacy_sales
+) ps
+WHERE rnk <= 2
+ORDER BY manufacturer;
+```
+
+### Thought process
+
+- **Top 2 per manufacturer:** Rank drugs by `units_sold` descending within each manufacturer. Keep rank 1 and 2. Use **DENSE_RANK()** so that if multiple drugs tie for 1st or 2nd, they all get the same rank and we return all of them (e.g. three drugs tied for 2nd → all three appear). `ROW_NUMBER()` would arbitrarily pick only two rows per manufacturer and drop ties.
+- **Partition and order:** `PARTITION BY manufacturer ORDER BY units_sold DESC` then `WHERE rnk <= 2`.
+- **Output:** `manufacturer` and drug name (as `top_drugs`). Final `ORDER BY manufacturer` for alphabetical order by manufacturer.
+
+</details>
+
+---
+
+## Q9. Unique product combinations per transaction (Walmart / DataLemur)
+
+**Question:** Given the Walmart `transactions` and `products` tables, write a query to find the **count of unique product combinations** that are purchased together in the same transaction. A transaction must have **at least two products** to form a combination. Display output in ascending order of the combinations (or report the count).
+
+**Example:** If one transaction has apples and bananas, another has bananas and soy milk, the number of **unique combinations** is 2 (apples+bananas, bananas+soy milk). Same combination in different transactions counts once.
+
+*You may or may not need the `products` table (product_id is enough to define a combination).*
+
+**Table: `transactions`**
+
+| Column           | Type     |
+|------------------|----------|
+| transaction_id   | integer  |
+| product_id       | integer  |
+| user_id          | integer  |
+| transaction_date | datetime |
+
+**Table: `products`**
+
+| Column       | Type    |
+|--------------|---------|
+| product_id   | integer |
+| product_name | string  |
+
+**Example output (list of distinct combinations):**  
+combination  
+111","222","444  
+(or similar string/array representation of product_id sets)
+
+**Output:** Either (1) distinct combinations in ascending order, or (2) a single count: `unique_combo_count`.
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution 1: Distinct combinations (array), ordered
+
+```sql
+WITH array_table AS (
+  SELECT
+    transaction_id,
+    ARRAY_AGG(CAST(product_id AS TEXT) ORDER BY product_id) AS combination
+  FROM transactions
+  GROUP BY transaction_id
+)
+SELECT DISTINCT combination
+FROM array_table
+WHERE ARRAY_LENGTH(combination, 1) > 1
+ORDER BY combination;
+```
+
+### Solution 2: Count of unique combinations
+
+```sql
+WITH per_txn AS (
+  SELECT
+    transaction_id,
+    ARRAY_AGG(DISTINCT product_id ORDER BY product_id) AS products
+  FROM transactions
+  GROUP BY transaction_id
+)
+SELECT COUNT(DISTINCT products) AS unique_combo_count
+FROM per_txn
+WHERE ARRAY_LENGTH(products, 1) >= 2;
+```
+
+*(Use `>= 2` so only transactions with at least 2 products count. Some dialects use `CARDINALITY(products) >= 2` or `array_length(..., 1) > 1`.)*
+
+### Solution 3: Distinct combinations (string), ordered
+
+```sql
+WITH dedup AS (
+  SELECT DISTINCT transaction_id, product_id
+  FROM transactions
+),
+per_txn AS (
+  SELECT
+    transaction_id,
+    STRING_AGG('"' || product_id::text || '"', ',' ORDER BY product_id) AS combination,
+    COUNT(*) AS product_count
+  FROM dedup
+  GROUP BY transaction_id
+)
+SELECT DISTINCT combination
+FROM per_txn
+WHERE product_count > 1
+ORDER BY combination;
+```
+
+### Thought process
+
+- **Combination = set of product_ids in one transaction:** For each transaction, aggregate product_ids into a single value (array or sorted string) so we can compare “same combination” across transactions. Sort (e.g. ORDER BY product_id) so (111, 222) and (222, 111) become the same.
+- **At least 2 products:** Filter out transactions with only one product: `ARRAY_LENGTH(...) > 1` or `>= 2`, or `COUNT(*) > 1` after grouping.
+- **Unique combinations:** Use `DISTINCT` on the combination (array or string). For **count** only: `COUNT(DISTINCT combination)` (or count distinct array/string per dialect).
+- **Dedup within transaction:** If a transaction can have the same product_id twice, use `DISTINCT` in the aggregate (e.g. `ARRAY_AGG(DISTINCT product_id ...)` or a CTE that deduplicates (transaction_id, product_id) first, as in Solution 3.
+- **Products table:** Optional; combination can be defined by product_id only. Use products if the output must show product names instead of ids.
+
+</details>
+
+---
+
+## Q10. Supercloud customers (Microsoft Azure / DataLemur)
+
+**Question:** A **Supercloud customer** is one who has purchased at least one product from **every product category** in the `products` table. Write a query to identify the **customer_id**s of these Supercloud customers.
+
+**Table: `customer_contracts`**
+
+| Column      | Type    |
+|-------------|---------|
+| customer_id | integer |
+| product_id  | integer |
+| amount      | integer |
+
+**Table: `products`**
+
+| Column            | Type    |
+|-------------------|---------|
+| product_id        | integer |
+| product_category  | string  |
+| product_name      | string  |
+
+**Example output:**  
+customer_id  
+1  
+
+(Only customers who have bought from all categories appear.)
+
+**Output column:**  
+`customer_id`
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution 1: Count distinct categories
+
+```sql
+SELECT customer_id
+FROM customer_contracts cc
+JOIN products p ON cc.product_id = p.product_id
+GROUP BY cc.customer_id
+HAVING COUNT(DISTINCT p.product_category) = (
+  SELECT COUNT(DISTINCT product_category) FROM products
+);
+```
+
+### Solution 2: Match set of categories (array)
+
+```sql
+SELECT c.customer_id
+FROM customer_contracts c
+JOIN products p ON c.product_id = p.product_id
+GROUP BY c.customer_id
+HAVING ARRAY_AGG(DISTINCT product_category ORDER BY product_category) = (
+  SELECT ARRAY_AGG(DISTINCT product_category ORDER BY product_category)
+  FROM products
+);
+```
+
+*(Syntax may vary by dialect; some support set equality or sorted array comparison.)*
+
+### Thought process
+
+- **Supercloud = has at least one product in every category:** For each customer, the set of categories they’ve bought from must equal the set of all categories in `products`. Join `customer_contracts` to `products` on `product_id` to get (customer_id, product_category).
+- **Solution 1:** Count how many **distinct** categories each customer has: `COUNT(DISTINCT product_category)` in a GROUP BY customer_id. The total number of categories is `(SELECT COUNT(DISTINCT product_category) FROM products)`. A customer is Supercloud iff their distinct category count equals that total. Use **HAVING** to filter.
+- **Solution 2:** Build the set of categories per customer (e.g. sorted `ARRAY_AGG(DISTINCT product_category ORDER BY product_category)`) and compare to the full set of categories from `products`. If the two arrays/sets are equal, the customer has all categories. Requires array/set comparison support.
+- **Duplicate purchases:** Using DISTINCT category (or distinct in the aggregate) ensures multiple products in the same category don’t inflate the count or the set.
+
+</details>
+
+---
+
 *More DataLemur questions can be added below.*
