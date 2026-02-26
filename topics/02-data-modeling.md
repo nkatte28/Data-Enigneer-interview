@@ -26,6 +26,10 @@ By the end of this topic, you should be able to:
 **Data modeling is the blueprint for your data.**
 
 **Definition**: Data modeling is creating a visual representation of how data is organized and connected in your system.
+✔ what data exists
+✔ how data is organized
+✔ how data elements relate to one another
+✔ attributes and structure of each data type
 
 **Real-World Example - Nike Store**:
 ```
@@ -52,6 +56,8 @@ Data modeling has **three levels**, from abstract (business view) to concrete (d
 
 #### 2.1 Conceptual Data Model - "What Does the Business Need?"
 
+conceptual data models define entities and their relationships at a high level.
+
 **Purpose**: High-level business view (WHAT, not HOW)
 
 **Nike Store Example**:
@@ -68,22 +74,29 @@ Data modeling has **three levels**, from abstract (business view) to concrete (d
 - A Product can be in many Sales (many:many)
 - A Store has many Sales (1:many)
 
-**Business Attributes** (no data types yet):
-- Customer: Name, Email, City
-  - Product: Product Name, Price, Category
-- Sale: Date, Total Amount
-- Store: Store Name, Location
-
 **Business Rules**:
 - Every Sale must have at least one Product
 - Every Sale must belong to one Customer
   - Customer Email must be unique
+  - 
+In strict modeling, attributes are introduced in the logical model. However, some conceptual models may include high-level business attributes without technical details.
 
 **Key Point**: No technical details - just business concepts!
 
 #### 2.2 Logical Data Model - "How is Data Organized?"
 
 **Purpose**: Detailed structure with generic data types (any database system)
+
+A more detailed model that adds structure and defines attributes and relationships between entities without being tied to any specific database system.
+
+Includes:
+Entities
+Attributes (fields)
+Relationships (with cardinalities)
+Rules and constraints
+Business definitions
+
+This model describes what will be stored in more detail — but still not how it is stored technically.
 
 **Nike Store Example**:
 
@@ -125,6 +138,14 @@ SaleItem Entity (for many-to-many):
 #### 2.3 Physical Data Model - "How is it Stored in PostgreSQL/MySQL?"
 
 **Purpose**: DBMS-specific implementation with performance optimizations
+The most concrete level; a database-specific design ready to be implemented.
+
+Includes:
+Table definitions
+Primary keys and foreign keys
+Data types (e.g., INT, VARCHAR)
+Indexes, constraints
+Storage decisions
 
 **Nike Store Example - PostgreSQL**:
 
