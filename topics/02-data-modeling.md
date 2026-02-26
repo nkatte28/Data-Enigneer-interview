@@ -316,6 +316,12 @@ GROUP BY c.city
 ---
 
 ### 4. Normalization: Organizing Data Efficiently
+Normalization is the process of organizing data
+
+✅ Reduce redundancy (duplicate data)
+✅ Improve data integrity
+✅ Avoid update anomalies
+✅ Maintain consistency
 
 **The Problem**: Without normalization, data gets messy and redundant.
 
@@ -340,7 +346,7 @@ sale_id | customer_name | customer_email | product_name | category | quantity | 
 
 #### First Normal Form (1NF) - Atomic Values
 
-**Rule**: Each column must contain atomic (indivisible) values. No repeating groups.
+**Rule**: Each column must contain atomic (indivisible) values. No repeating groups(in a column).
 
 **Nike Store Example - Violating 1NF**:
 
@@ -376,7 +382,9 @@ sale_id | product_name
 
 #### Second Normal Form (2NF) - No Partial Dependencies
 
-**Rule**: Must be in 1NF + all non-key attributes fully depend on primary key.
+**Rule**: Must be in 1NF + 
+all non-key attributes fully depend on primary key + 
+Relationship between tables should be formed using FK
 
 **Nike Store Example - Violating 2NF**:
 
@@ -410,7 +418,7 @@ product_id | product_name | category
 
 #### Third Normal Form (3NF) - No Transitive Dependencies
 
-**Rule**: Must be in 2NF + no non-key attribute depends on another non-key attribute.
+**Rule**: Must be in 2NF + no non-key attribute depends on another non-key attribute(Avoid Transitive dependency A = B = C so A = C).
 
 **Nike Store Example - Violating 3NF**:
 
