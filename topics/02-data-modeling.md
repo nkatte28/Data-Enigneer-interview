@@ -605,6 +605,10 @@ GROUP BY customer_city;
 
 **Structure**: Central fact table surrounded by dimension tables (like a star ⭐)
 
+A dimensional model where:
+One central Fact table
+Connected directly to multiple Denormalized Dimension tables
+
 **Nike Store Star Schema**:
 
 ```
@@ -792,6 +796,10 @@ LIMIT 10;
 ### 7. Snowflake Schema: Normalized Dimensions
 
 **Structure**: Normalized star schema (dimensions reference other dimensions)
+
+A dimensional model where:
+Fact table in center
+Dimensions are normalized into multiple related tables
 
 **Nike Store Snowflake Schema**:
 
