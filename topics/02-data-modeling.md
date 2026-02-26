@@ -955,6 +955,73 @@ GROUP BY co.country_name;
 - ✅ When dimensions are small to medium
 - ✅ When business users need simple queries
 
+
+---
+
+### Diffrent types of Data Models:
+
+<img width="814" height="364" alt="Screenshot 2026-02-26 at 16 18 34" src="https://github.com/user-attachments/assets/1f61497d-cbe7-48e0-83ca-407d9c019cb3" />
+
+A) Structural Models (older database theory)
+Hierarchical
+Network
+Relational
+
+B) Design / Analytical Models
+ER model
+Dimensional model
+Data Vault
+
+**Hierarchical Model**
+<img width="1043" height="552" alt="Screenshot 2026-02-26 at 16 15 36" src="https://github.com/user-attachments/assets/df023e26-9998-49db-98c7-bf70282fc3b5" />
+
+Structure:
+
+Tree-like (parent → child)
+One-to-many relationships
+Each child has only one parent
+
+**Example**:
+Company
+→ Department
+→ Employee
+![Uploading HDM.svg…]()
+
+Used in:
+Early mainframe systems
+IBM IMS
+
+**Limitation**:
+Difficult to represent many-to-many relationships
+
+
+**Entity–Relationship (ER) Model**
+<img width="1024" height="528" alt="Screenshot 2026-02-26 at 16 16 38" src="https://github.com/user-attachments/assets/fca3f396-5019-4a57-9196-73a92d6b7206" />
+
+
+Entities
+Attributes
+Relationships
+Cardinality (1:1, 1:N, M:N)
+
+Used during:
+Database design phase
+System architecture planning
+
+Important:
+ER model is not a storage model, it’s a design model.
+
+**Dimensional Model (Kimball)**
+Structure:
+Fact tables
+Dimension tables
+Optimized for analytics
+
+Used in:
+Data warehouses
+BI systems
+Reporting
+
 ---
 
 ### 8. Slowly Changing Dimensions (SCD): Handling Changes Over Time
@@ -1739,15 +1806,16 @@ categories: category_id, category_name
 1. **What are facts and dimensions? Give a Nike store example.**
 2. **Explain the difference between Star Schema and Snowflake Schema.**
 3. **What is normalization? What are 1NF, 2NF, 3NF?**
-4. **When would you use SCD Type 1 vs Type 2?**
+4. **When would you use SCD Type 1 vs Type 2? How would you implement SCD Type 2 using MERGE in Delta Lake? **
 5. **What is the difference between OLTP and OLAP data modeling?**
 6. **When should you normalize vs denormalize?**
 7. **What is the grain of a fact table?**
 8. **Explain surrogate keys vs natural keys.**
 9. **What are the three levels of data models?**
 10. **How do you design a fact table?**
-
----
+11.  **What is data modeling and why is it important? What happens if you skip proper modeling? How does modeling impact performance and cost in cloud warehouses?.**
+12.  **Factless fact tables.**
+13.  **What are surrogate keys and why use them?**
 
 ## 🎯 Next Steps
 
@@ -1766,5 +1834,58 @@ Once you're comfortable with this topic, we'll move to:
 - **dbdiagram.io**: Free ER diagram tool
 
 ---
+
+
+✅ 1️⃣ How Do You Design a Fact Table?
+Step-by-step approach
+“I always start by defining the grain of the fact table. Then I identify measurable metrics, link dimensions using surrogate keys, and design for performance and scalability.”
+
+Can a fact table change grain later?
+No. Grain must remain consistent. If business needs change, you create a new fact table.
+
+🔹 Step 1: Define the Grain (Most Important)
+Grain answers:
+What does one row represent?
+Is it per order? Per transaction? Per event? Per day snapshot?
+Example:
+One row per order line item
+One row per bank transaction
+One row per ride event
+
+If you don’t define grain first → interviewer concern 🚩
+
+🔹 Step 2: Identify Measures (Facts)
+Facts should be:
+Numeric
+Aggregatable (if possible)
+Examples:
+Revenue
+Quantity
+Ride distance
+Transaction amount
+Inventory count
+
+🔹 Step 3: Identify Dimensions
+
+Link via surrogate keys:
+Date
+Customer
+Product
+Store
+Account
+Driver
+Location
+
+🔹 Step 4: Handle Additivity
+Decide if measures are:
+Additive
+Semi-additive
+Non-additive
+
+🔹 Step 5: Performance Strategy
+Partition by date
+Use surrogate keys (integers)
+Avoid text joins
+Consider snapshot vs transactional modeling
 
 **Keep Modeling! 📊**
