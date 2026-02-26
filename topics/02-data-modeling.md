@@ -1888,4 +1888,129 @@ Use surrogate keys (integers)
 Avoid text joins
 Consider snapshot vs transactional modeling
 
+
+---
+
+**Explain how ER converts into Dimensional**
+To convert an ER model to a dimensional model, I first identify the business process and define the grain. Then I derive the fact table from transactional tables like order_items. Next, I denormalize related entity tables into wide dimension tables, introduce surrogate keys, flatten hierarchies, and optimize for read performance using a star schema structure.
+
+<img width="697" height="317" alt="Screenshot 2026-02-26 at 16 21 06" src="https://github.com/user-attachments/assets/498eb83c-fb8d-4e6f-82a4-ae3969898c65" />
+
+🔹 Step 1: Understand the ER Model (Source System)
+
+An ER model is usually:
+Highly normalized (3NF)
+Designed for transactions
+Optimized for writes
+Many small tables
+Lots of joins
+
+Example: E-commerce ER Model
+
+Tables might look like:
+Customers
+Orders
+Order_Items
+Products
+Categories
+Payments
+Addresses
+
+Highly normalized.
+Lots of relationships.
+Great for OLTP.
+Bad for analytics performance.
+
+🔹 Step 2: Identify Business Process (Very Important)
+
+Dimensional modeling starts with:
+What business process are we analyzing?
+
+Examples:
+Sales
+Inventory
+Transactions
+Rides
+Shipments
+
+This becomes your fact table.
+
+🔹 Step 3: Define the Grain
+
+Example:
+For e-commerce:
+
+One row per order line item.
+Grain drives everything.
+
+🔹 Step 4: Create Fact Table
+
+From ER:
+Order_Items table usually becomes your core fact table.
+Fact_Sales:
+order_key
+product_key
+customer_key
+date_key
+quantity
+sales_amount
+discount_amount
+
+🔹 Step 5: Denormalize Dimensions
+
+This is where conversion really happens.
+In ER:
+Customer data might be split across:
+customer
+customer_address
+customer_contact
+loyalty_status
+In dimensional model:
+👉 All that becomes ONE wide Dim_Customer table.
+
+Example:
+
+Dim_Customer:
+customer_key (surrogate)
+customer_id (natural key)
+
+name
+city
+state
+loyalty_tier
+effective_date (if SCD)
+
+🔹 Step 6: Replace Natural Keys with Surrogate Keys
+
+In ER:
+customer_id = C123
+
+In Dimensional:
+customer_key = 101
+
+Why?
+Performance
+SCD handling
+Decoupling from source
+
+🔹 Step 7: Flatten Hierarchies
+
+In ER:
+Product → Subcategory → Category (separate tables)
+In Dimensional:
+Dim_Product contains:
+product_name
+subcategory
+category
+
+Flattened.
+Fewer joins.
+Faster queries.
+
+Now instead of 15 normalized tables,
+you have:
+
+1 Fact table
+5–8 Dimension tables
+
 **Keep Modeling! 📊**
