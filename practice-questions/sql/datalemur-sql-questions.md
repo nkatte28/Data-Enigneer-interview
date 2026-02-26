@@ -656,4 +656,282 @@ ORDER BY order_id;
 
 ---
 
+## Q13. Highest and lowest open by month per ticker (Bloomberg / DataLemur)
+
+**Question:** For each FAANG stock (or each ticker in the table), display the **ticker**, the **month and year** ('Mon-YYYY') with the **highest open** price, the **highest open** value, the **month and year** with the **lowest open** price, and the **lowest open** value. Sort by ticker.
+
+**Table: `stock_prices`**
+
+| Column  | Type     | Description                          |
+|---------|----------|--------------------------------------|
+| date    | datetime | Date of the stock data               |
+| ticker  | varchar  | Stock ticker (e.g. AAPL)             |
+| open    | decimal  | Opening price at start of trading day|
+| high    | decimal  | Highest price during the day         |
+| low     | decimal  | Lowest price during the day          |
+| close   | decimal  | Closing price at end of day          |
+
+**Example output:**  
+ticker | highest_mth | highest_open | lowest_mth | lowest_open  
+AAPL   | May-2023   | 176.76       | Jan-2023   | 142.28  
+
+**Output columns:**  
+`ticker`, `highest_mth`, `highest_open`, `lowest_mth`, `lowest_open`
+
+*The dataset you query may have different input/output; this is just an example.*
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution
+
+```sql
+SELECT DISTINCT
+  ticker,
+  FIRST_VALUE(TO_CHAR(date, 'Mon-YYYY')) OVER (PARTITION BY ticker ORDER BY open DESC) AS highest_mth,
+  MAX(open) OVER (PARTITION BY ticker) AS highest_open,
+  LAST_VALUE(TO_CHAR(date, 'Mon-YYYY')) OVER (
+    PARTITION BY ticker ORDER BY open DESC
+    ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+  ) AS lowest_mth,
+  MIN(open) OVER (PARTITION BY ticker) AS lowest_open
+FROM stock_prices
+ORDER BY 1;
+```
+
+*(Dialect may use different date formatting, e.g. `TO_CHAR(date, 'Mon-YYYY')` or `DATE_FORMAT(date, '%b-%Y')`.)*
+
+### Thought process
+
+- **Per ticker:** Partition all window functions by `ticker`. We want one row per ticker (use DISTINCT or GROUP BY on ticker plus the aggregates).
+- **Highest open:** `MAX(open) OVER (PARTITION BY ticker)` gives the max open for that ticker. The **month** when that max occurred: order rows by `open DESC` and take the **first** row's date → `FIRST_VALUE(TO_CHAR(date, 'Mon-YYYY')) OVER (PARTITION BY ticker ORDER BY open DESC)`. (Ties: first row in that order wins.)
+- **Lowest open:** `MIN(open) OVER (PARTITION BY ticker)` for the value. The **month** when that min occurred: with `ORDER BY open DESC`, the row with the **smallest** open is the **last** row. So `LAST_VALUE(TO_CHAR(date, 'Mon-YYYY')) OVER (PARTITION BY ticker ORDER BY open DESC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)` — the frame is needed so LAST_VALUE considers the whole partition, not just the default "rows up to current row."
+- **One row per ticker:** DISTINCT on (ticker, highest_mth, highest_open, lowest_mth, lowest_open) collapses to one row per ticker since the window functions return the same values for all rows in the partition. Alternatively use a subquery/CTE that computes these per ticker and then select from it without DISTINCT.
+
+</details>
+
+---
+
+## Q14. Top marketing channel for first bookings (Airbnb / DataLemur)
+
+**Question:** Find the **top marketing channel** (by share of first rental bookings) and the **percentage** of first rental bookings from that channel. Round the percentage to the nearest integer. Assume no ties.
+
+**Assumptions:**
+- **Null** channel values are included in the **denominator** (total first bookings), but the **top channel must not be null** — we cannot report null as the top channel.
+- Use **100.0** (not 100) when computing the percentage to avoid integer division.
+
+**Table: `bookings`**
+
+| Column       | Type     |
+|--------------|----------|
+| booking_id   | integer  |
+| user_id      | integer  |
+| booking_date | datetime |
+
+**Table: `booking_attribution`**
+
+| Column     | Type    |
+|------------|---------|
+| booking_id | integer |
+| channel    | string  |
+
+**Example output:**  
+channel          | first_booking_pct  
+organic search   | 67  
+
+(Explanation: User 1's first booking = organic search, user 2's first = organic search, user 3's first = null. So 2/3 ≈ 67%.)
+
+*The dataset you query may have different input/output.*
+
+**Output columns:**  
+`channel`, `first_booking_pct`
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution
+
+```sql
+WITH user_bookings AS (
+  SELECT
+    bookings.booking_id,
+    ROW_NUMBER() OVER (
+      PARTITION BY bookings.user_id
+      ORDER BY bookings.booking_date
+    ) AS booking_no,
+    channels.channel
+  FROM bookings
+  INNER JOIN booking_attribution AS channels
+    ON bookings.booking_id = channels.booking_id
+),
+first_bookings AS (
+  SELECT
+    channel,
+    COUNT(*) AS channel_booking
+  FROM user_bookings
+  WHERE booking_no = 1
+  GROUP BY channel
+)
+SELECT
+  channel,
+  ROUND(100.0 * (channel_booking / (SELECT SUM(channel_booking) FROM first_bookings)), 0) AS first_booking_pct
+FROM first_bookings
+WHERE channel IS NOT NULL
+ORDER BY first_booking_pct DESC
+LIMIT 1;
+```
+
+### Thought process
+
+- **First booking per user:** Join `bookings` to `booking_attribution` on `booking_id` to get (user_id, booking_date, channel). Use **ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY booking_date)** so the earliest booking per user gets 1. Filter `booking_no = 1` to keep only first bookings.
+- **Count per channel:** From that set, `GROUP BY channel` and `COUNT(*) AS channel_booking`. This includes a row for null channel (first bookings with no channel), and that count goes into the total.
+- **Total first bookings:** `SUM(channel_booking)` from `first_bookings` — includes null, so denominator is correct.
+- **Percentage:** For each channel, `100.0 * channel_booking / total`, then **ROUND(..., 0)**. Use 100.0 to get float division.
+- **Top channel, no null:** `WHERE channel IS NOT NULL`, then `ORDER BY first_booking_pct DESC LIMIT 1` so the top channel is non-null and we return one row.
+
+</details>
+
+---
+
+## Q15. Shopping spree users (Amazon / DataLemur)
+
+**Question:** A **shopping spree** is when a user makes purchases on **3 or more consecutive days**. List the **user_id**s who have had at least one shopping spree, in ascending order.
+
+**Table: `transactions`**
+
+| Column            | Type      |
+|-------------------|-----------|
+| user_id           | integer   |
+| amount            | float     |
+| transaction_date  | timestamp |
+
+**Example:** User 2 has transactions on 08/05, 08/06, 08/07 (three consecutive days) → included. User 1 has 08/01 and 08/17 only → not consecutive → excluded.
+
+*The dataset you query may have different input/output.*
+
+**Output column:**  
+`user_id` (ascending)
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution (self-join on consecutive dates)
+
+```sql
+SELECT DISTINCT T1.user_id
+FROM transactions AS T1
+INNER JOIN transactions AS T2
+  ON T1.user_id = T2.user_id
+  AND DATE(T2.transaction_date) = DATE(T1.transaction_date) + 1
+INNER JOIN transactions AS T3
+  ON T1.user_id = T3.user_id
+  AND DATE(T3.transaction_date) = DATE(T1.transaction_date) + 2
+ORDER BY T1.user_id;
+```
+
+*(Date arithmetic may vary by dialect: `DATE(t) + 1`, `DATE_ADD(DATE(t), 1)`, or `t::date + INTERVAL '1 day'`.)*
+
+### Thought process
+
+- **3 consecutive days:** For each user we need at least one date D such that the user has a transaction on D, D+1, and D+2. So we need three rows for the **same user** on three consecutive calendar days.
+- **Self-join:** From `transactions` T1, join to T2 and T3 on **same user_id** and on **consecutive dates**. T1 gives a transaction on some date; T2 must be same user and date = T1’s date + 1; T3 same user and date = T1’s date + 2. INNER JOIN ensures all three exist. Select DISTINCT user_id so each user appears once even if they have multiple 3-day runs.
+- **Date handling:** Cast `transaction_date` to date (e.g. `DATE(transaction_date)`) so time doesn’t matter. Consecutive day = +1 day in the database’s date arithmetic.
+- **Alternative:** Window approach: assign a “group” to each consecutive run of days (e.g. date - ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY date)), then GROUP BY user_id and that group and HAVING COUNT(DISTINCT date) >= 3.
+
+</details>
+
+---
+
+## Q16. Average 2nd-ride delay for "in-the-moment" users (Uber / DataLemur)
+
+**Question:** "In-the-moment" users signed up the **same day** as their **first ride**. Find the **average delay** (in days) between **registration date** and the **2nd ride** for these users only. Round to 2 decimal places.
+
+**Tip:** You don't need complex date functions; date subtraction often gives the difference in days.
+
+**Table: `users`**
+
+| Column             | Type    |
+|--------------------|---------|
+| user_id            | integer |
+| registration_date  | date    |
+
+**Table: `rides`**
+
+| Column    | Type    |
+|-----------|---------|
+| ride_id   | integer |
+| user_id   | integer |
+| ride_date | date    |
+
+**Example:** User 1: registered 08/15, 1st ride 08/15, 2nd ride 08/16 → delay = 1 day. User 2: first ride ≠ registration date → excluded. Average = 1.
+
+*The dataset you query may have different input/output.*
+
+**Output column:**  
+`average_delay` (one row, 2 decimals)
+
+<details>
+<summary>Show solution and explanation</summary>
+
+### Solution
+
+```sql
+WITH cte AS (
+  SELECT
+    u.user_id,
+    u.registration_date,
+    r.ride_date,
+    ROW_NUMBER() OVER (PARTITION BY u.user_id ORDER BY r.ride_date) AS ride_number
+  FROM users u
+  JOIN rides r ON u.user_id = r.user_id
+)
+SELECT
+  ROUND(AVG(ride_date - registration_date), 2) AS average_delay
+FROM cte
+WHERE ride_number = 2
+  AND user_id IN (
+    SELECT user_id
+    FROM cte
+    WHERE ride_number = 1
+      AND registration_date = ride_date
+  );
+```
+
+### Thought process
+
+- **Number rides per user:** Join `users` to `rides` on `user_id`. Use **ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY ride_date)** so 1st ride = 1, 2nd = 2, etc. Put this in a CTE.
+- **In-the-moment users:** Users whose **first ride** (ride_number = 1) is on the **same day** as **registration_date** (registration_date = ride_date). Subquery: `SELECT user_id FROM cte WHERE ride_number = 1 AND registration_date = ride_date`.
+- **2nd-ride delay:** For those users only, take rows where **ride_number = 2**. Delay = days between registration and 2nd ride. **ride_date - registration_date** on the 2nd-ride row gives that in many dialects.
+- **Average:** `AVG(ride_date - registration_date)` over those rows, then **ROUND(..., 2)**. One row in the output.
+
+### Alternative solution (two CTEs)
+
+```sql
+WITH A1 AS (
+  SELECT
+    u.user_id,
+    registration_date,
+    ride_date,
+    ROW_NUMBER() OVER (PARTITION BY u.user_id ORDER BY ride_date) AS ranking
+  FROM users u
+  JOIN rides r ON u.user_id = r.user_id
+),
+A2 AS (
+  SELECT * FROM A1
+  WHERE user_id IN (
+    SELECT user_id FROM A1
+    WHERE ranking = 1 AND registration_date = ride_date
+  )
+)
+SELECT ROUND(AVG(ride_date - registration_date), 2) AS average_delay
+FROM A2
+WHERE ranking = 2;
+```
+
+Same logic: A1 numbers rides per user; A2 keeps only in-the-moment users (first ride = registration date); final query averages delay for their 2nd ride (ranking = 2). Fixed column alias to `average_delay`.
+
+</details>
+
+---
+
 *More DataLemur questions can be added below.*
