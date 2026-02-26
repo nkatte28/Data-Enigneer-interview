@@ -959,6 +959,8 @@ GROUP BY co.country_name;
 
 ### 8. Slowly Changing Dimensions (SCD): Handling Changes Over Time
 
+It’s a technique used in dimensional models (Star/Snowflake) to handle changes in dimension attributes over time.
+
 **The Problem**: What happens when dimension data changes?
 
 **Nike Store Example**:
@@ -986,6 +988,12 @@ customer_id | registration_date
 
 **Behavior**: Old value is overwritten with new value. History is lost.
 
+📘 Concept
+When a change happens:
+Just update the record.
+No historical tracking.
+Old data is lost.
+
 **Nike Store Example**:
 
 **Before**:
@@ -1010,9 +1018,31 @@ customer_id | name | city
 **Pros**: Simple, no history tracking needed  
 **Cons**: Loses historical data (can't answer "Where did Sarah live in 2023?")
 
-#### SCD Type 2: Add New Row (Preserve History) - MOST COMMON
+🧠 When to Use Type 1
+Use when:
+History doesn’t matter.
+Correction of typo (wrong email, spelling mistake).
+Non-analytical attributes.
+
+Example:
+Fixing customer email
+Updating phone number
+
+#### SCD Type 2: Add New Row (Preserve History) - MOST COMMON - Full History
 
 **Behavior**: Create new row with new values, keep old row. Full history preserved.
+
+📘 Concept
+Instead of updating the row:
+Close old record
+Insert new record
+Track time validity
+
+We add:
+Surrogate Key
+Start Date
+End Date
+Current Flag
 
 **Nike Store Example**:
 
@@ -1064,6 +1094,10 @@ WHERE customer_id = 101
 
 **Behavior**: Add column to store previous value. Only one previous value kept.
 
+📘 Concept
+Instead of new rows,
+We add extra columns to store previous value.
+
 **Nike Store Example**:
 
 **Before**:
@@ -1110,14 +1144,30 @@ customer_id | city | effective_date | expiry_date
 
 **Use Case**:
 - ✅ Clean separation needed
-- ✅ Fast current lookups
+- ✅ Keeps main dimension table small and clean
+- ✅ Faster queries for “current state” reporting/lookups
+- ✅ History is stored separately for deep audits
 
 **Pros**: Clean separation, fast current lookups
 **Cons**: Requires joins for history
 
-#### SCD Type 5: Mini-Dimension (Separate Changing Attributes)
+In heavily audited systems:
+Banking
+Healthcare
+Regulatory compliance
+Sometimes history is rarely queried but must be preserved.
+
+#### SCD Type 5: Mini-Dimension (Separate Changing Attributes) - Type 1 + Type 4 Hybrid
 
 **Behavior**: Separate table for frequently changing attributes. The changing attributes table uses SCD Type 2 style (with time tracking), while static attributes stay in the main table.
+
+📘 Concept
+Maintain a current dimension table (Type 1 style)
+Maintain a separate historical table (Type 4)
+But also allow fact table to join current attributes directly
+So:
+Current attributes always reflect latest values
+Historical deep dive available separately
 
 **Nike Store Example**:
 
