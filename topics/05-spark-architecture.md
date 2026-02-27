@@ -946,7 +946,7 @@ spark-submit \
 ## 🎯 Next Steps
 
 Once you're comfortable with Spark architecture, move on to:
-- **Topic 6: Spark Issues and Troubleshooting** for common problems and solutions
+- **Topic 6: Spark Optimizations and Spark Issues and Troubleshooting** for optimizations, common problems, and solutions
 
 **Study Time**: Spend 2-3 days on this topic, practice with Spark examples.
 

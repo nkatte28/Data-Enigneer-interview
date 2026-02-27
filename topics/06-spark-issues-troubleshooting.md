@@ -1,8 +1,10 @@
-# Topic 6: Spark Issues and Troubleshooting
+# Topic 6: Spark Optimizations and Spark Issues and Troubleshooting
 
 ## 🎯 Learning Goals
 
 By the end of this topic, you should be able to:
+- **Optimizations:** Explain Spark default optimization methods (RBO, CBO, AQE), Catalyst, predicate/projection pushdown, column/partition pruning, constant folding, join reordering; Tungsten and vectorized execution; and how they apply to tables vs DataFrames
+- **Engineer practices:** Know what to do so inbuilt optimizations work better (filters, column selection, statistics, skew, partitioning) and what extra optimizations to add (repartition, coalesce, broadcast, etc.)
 - Identify and resolve common Spark OutOfMemory (OOM) errors
 - Understand and fix data skewness issues in Spark
 - Handle small files problem in Spark and Hive
@@ -14,7 +16,215 @@ By the end of this topic, you should be able to:
 
 ---
 
-## 📖 Common Spark Issues and Solutions
+## 📖 Part 1: Spark Optimizations
+
+### Spark default optimization methods (overview)
+
+Spark applies optimizations in several layers:
+
+1. **Catalyst optimizer** (always enabled) – applies rule-based and cost-based transformations to the logical and physical plan before execution.
+2. **RBO (Rule-Based Optimizer)** – predefined transformation rules; no data statistics needed.
+3. **CBO (Cost-Based Optimizer)** – uses table/column statistics to choose join order and strategies (enabled by default in Spark 3.0+).
+4. **AQE (Adaptive Query Execution)** – adjusts at runtime based on actual data (Spark 3.x).
+5. **Tungsten** – memory management and code generation.
+6. **Vectorized execution** – batch processing in columnar format where supported (e.g. Parquet).
+
+---
+
+### Differences between Spark 2.0, 3.0, and 4.0 (optimizations)
+
+| Area | Spark 2.x | Spark 3.x | Spark 4.x (expected) |
+|------|-----------|-----------|------------------------|
+| **CBO** | Off by default; must enable `spark.sql.cbo.enabled` | On by default; join reorder, better broadcast | Further refinements |
+| **AQE** | Not available | AQE enabled by default (coalesce, skew join, join strategy switch) | More adaptive features |
+| **RBO** | Catalyst RBO (predicate pushdown, pruning, etc.) | Same + more rules | Continued expansion |
+| **Dynamic partition pruning** | Limited | Improved for dynamic filters | — |
+| **Join hints** | Broadcast hint | Broadcast, shuffle, merge, etc. | — |
+| **Python** | Row-by-row UDFs | Pandas UDFs / vectorized UDFs | — |
+
+---
+
+### RBO – Rule-Based Optimizer (how Catalyst handles it)
+
+RBO applies **predefined transformation rules** to the logical (and physical) plan **without using data statistics**. Catalyst runs these rules during query planning.
+
+**Common RBO types:**
+
+- **Predicate pushdown**
+- **Projection pushdown**
+- **Constant folding**
+- **Column pruning**
+- **Partition pruning**
+- **Join reordering** (when combined with CBO)
+- **Remove redundant operations**
+
+---
+
+#### Predicate pushdown
+
+- **What it does:** Pushes filter conditions down to the **data source** so the storage layer returns only matching rows instead of reading everything and filtering in Spark.
+- **Example:** `spark.read.parquet("path")` then `df.filter(age > 30)`. With predicate pushdown, Spark tells the reader “only give rows where age > 30”; the file format (e.g. Parquet) can skip row groups and return fewer rows.
+- **Benefits:** Less data read from disk, less data transferred over the network, and fewer rows in the execution plan early on → much faster.
+- **Default:** Usually on for Parquet/ORC and other supported sources. Can be explicitly enabled via Spark config (e.g. filter pushdown settings) when supported.
+
+---
+
+#### Projection pushdown
+
+- **What it does:** Pushes **column selection** down to the data source so only **required columns** are read from storage.
+- **Why it matters:** Columnar formats (Parquet, ORC, Delta) store data by column. Reading only needed columns skips entire column chunks.
+- **Benefits:** Fewer disk reads, less network traffic, less memory, smaller data footprint in memory and during shuffle.
+
+---
+
+#### Constant folding
+
+- **What it does:** Spark evaluates **constant expressions once at query planning time** and replaces them with the result, so they are not recomputed for every row.
+- **Example:** `df.withColumn("x", lit(some_constant_formula))` – if `some_constant_formula` is constant, Spark replaces it with `lit(result)` instead of computing it per row.
+- **Benefits:** Removes repeated calculations, reduces CPU and I/O, and simplifies the execution plan.
+
+---
+
+#### Column pruning
+
+- **What it does:** Removes **unnecessary columns** from the logical and physical plan so downstream operators only see columns that are actually used.
+- **Column pruning vs projection pushdown:**
+
+| | Column pruning | Projection pushdown |
+|---|----------------|---------------------|
+| **Where** | In Spark’s plan | At the data source |
+| **Effect** | Drops columns from the execution plan | Avoids reading those columns from disk |
+| **Formats** | Any | Columnar (Parquet, ORC, etc.) only |
+| **Plan level** | Logical + physical | Physical scan |
+
+---
+
+#### Partition pruning
+
+- **What it does:** Skips **entire partitions**; only **required partitions** are scanned instead of reading all data.
+- **Condition:** Only possible if the **table is partitioned** (e.g. by date, region). Filters on partition columns allow skipping partition directories/files.
+- **Limitation:** If the table (e.g. Delta) is not partitioned, partition pruning does not apply.
+
+---
+
+### Join reordering (RBO/CBO)
+
+- **What it does:** Spark changes the **order of joins** to reduce intermediate data size and improve performance.
+- **Example:** A = 100M rows, B = 10M, C = 10K. Naive order `A.join(B).join(C)` produces a huge intermediate result. Optimized order can be `A.join(C)` first (smaller result), then join with B → smaller intermediate data.
+- **Config (CBO):** Join reordering is driven by CBO when statistics are available:
+  - `spark.sql.cbo.enabled = true`
+  - `spark.sql.cbo.joinReorder.enabled = true`
+
+---
+
+### Storage and statistics (for CBO)
+
+CBO needs **statistics** to make good decisions:
+
+- Table: row count, size
+- Columns: cardinality, number of distinct values, data distribution (histograms where available)
+
+**How to populate:** Run **`ANALYZE TABLE`** (and optionally `COMPUTE STATISTICS`) so Spark/Delta stores these in the table metadata. CBO then uses them to choose join strategies and join order.
+
+---
+
+### CBO – Cost-Based Optimizer (how it works)
+
+- **What it does:** Uses **table and column statistics** to estimate query cost and choose **optimal join order and execution strategies**, reducing shuffle and intermediate data size.
+- **Decisions:** CBO decides based on statistics (row counts, sizes, cardinality), not just rules. It optimizes join structure; the physical plan is derived from that, and execution uses the chosen strategies.
+- **CBO enables:**
+  - Join reordering
+  - Better choice of broadcast joins
+  - Improved AQE behavior
+  - Smarter physical plans
+
+**Default:** CBO is usually **on by default in Spark 3.0+**. Ensure statistics are collected (e.g. `ANALYZE TABLE`) for best effect.
+
+---
+
+### Tungsten Engine optimizations
+
+Tungsten improves **memory and CPU efficiency**:
+
+- **Off-heap memory** and compact binary in-memory representation
+- **Whole-stage code generation** – fuses operators and generates JVM bytecode to avoid per-row virtual calls
+- **Cache-friendly layouts** – data laid out for efficient access
+
+These apply under the hood to both DataFrame and SQL execution.
+
+---
+
+### AQE (Adaptive Query Execution)
+
+- **What it is:** Runtime re-optimization based on **actual** data sizes and shuffle statistics (Spark 3.x, on by default in many distributions).
+- **Features:** Dynamic coalesce of shuffle partitions, skew join handling, switching join strategy (e.g. sort-merge to broadcast) when runtime stats justify it.
+- **Benefit:** Reduces need to guess partition counts and helps with skew and join strategy mistakes.
+
+---
+
+### Vectorized execution
+
+- **What it is:** Processing data in **columnar batches** instead of row-by-row, especially for Parquet (and similar) reads.
+- **Benefit:** Better CPU cache use and fewer virtual calls; can significantly speed up scans and columnar operations.
+- **Scope:** Typically applies to reads and certain operations in the engine; not all UDFs are vectorized.
+
+---
+
+### How these work on tables vs DataFrames
+
+- **Tables (catalog):** When you query a table (e.g. `spark.sql("SELECT ... FROM my_table")` or `spark.table("my_table")`), Catalyst, RBO, CBO, AQE, Tungsten, and vectorized execution all apply during planning and execution. Statistics from `ANALYZE TABLE` are used by CBO for catalog tables.
+- **DataFrames (API):** The same optimizations apply. DataFrame operations are translated into a logical plan and then optimized the same way. So `df.filter(...).select(...).join(...)` gets predicate pushdown, column pruning, join reorder (with CBO), etc. Statistics for CBO are used when the DataFrame was built from a catalog table or when statistics are available for the source.
+
+---
+
+### What to do as an engineer so inbuilt optimizations work better
+
+1. **For RBO to work well:**
+   - **Filter early** and on columns that can be pushed down (avoid filtering only after heavy shuffles).
+   - **Select only needed columns** so column pruning and projection pushdown can drop the rest.
+   - Avoid redundant operations and unnecessary broad selects.
+
+2. **For CBO to work well:**
+   - **Keep statistics up to date:** Run `ANALYZE TABLE ... COMPUTE STATISTICS` (and column stats if needed) on key tables.
+   - **Avoid heavily skewed join keys** and tune partitioning so CBO’s size estimates and join choices are valid.
+   - Use **partitioning** that matches common filters so partition pruning can kick in.
+
+3. **For AQE to help:**
+   - Let it run (enabled by default in 3.x); use a reasonable initial partition count so AQE can coalesce or rebalance effectively.
+
+---
+
+### Optimizations you can add beyond the inbuilt ones
+
+These are **explicit** choices you make in code or config; they complement the automatic optimizations above.
+
+1. **Repartition**
+   - **What:** Changes partition count via a **full shuffle**; redistributes data evenly (or by expression).
+   - **When:** Before large joins (repartition both sides by join key to align partitions and reduce skew), when you need more parallelism, or when data is skewed and you want even-sized partitions.
+   - **Example:** `df.repartition(300, "cust_id")` before a join; do the same for the other DataFrame on the same key.
+   - **Cost:** Shuffle is expensive (network + disk); use when the benefit (faster join, less skew) outweighs it.
+
+2. **Coalesce**
+   - **What:** **Reduces** partition count by **merging** existing partitions; **no shuffle**.
+   - **When:** To decrease partitions (e.g. before write to avoid many small files), when you already have skewed or “ballooned” partitions and want fewer, or to limit output file count. **Not** ideal for fixing skew (can create uneven partitions).
+   - **Example:** `df.coalesce(5)` before `write.save(...)`.
+   - **Rule of thumb:** Repartition → performance (even distribution, parallelism). Coalesce → cleanup (fewer partitions/files).
+
+3. **Broadcast join**
+   - Use broadcast hint for small tables/dimensions so one side is sent to all executors and no big shuffle is needed.
+
+4. **Salting**
+   - Add a random salt to skewed join keys to spread hot keys across more partitions and reduce skew (see troubleshooting section later).
+
+5. **Partitioning at write**
+   - Pre-partition by a key (e.g. `df.repartition("date").write.partitionBy("date").save(...)`) so reads can use partition pruning and joins can be more efficient.
+
+6. **Caching**
+   - Cache only when a dataset is reused multiple times; unpersist when done to free memory.
+
+---
+
+## 📖 Part 2: Common Spark Issues and Solutions
 
 ### Most Common Causes of OOM (OutOfMemory) Errors
 
