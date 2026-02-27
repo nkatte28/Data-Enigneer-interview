@@ -78,7 +78,6 @@ conceptual data models define entities and their relationships at a high level.
 - Every Sale must have at least one Product
 - Every Sale must belong to one Customer
   - Customer Email must be unique
-  - 
 In strict modeling, attributes are introduced in the logical model. However, some conceptual models may include high-level business attributes without technical details.
 
 **Key Point**: No technical details - just business concepts!
