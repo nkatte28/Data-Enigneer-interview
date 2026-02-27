@@ -29,6 +29,37 @@ Spark applies optimizations in several layers:
 5. **Tungsten** – memory management and code generation.
 6. **Vectorized execution** – batch processing in columnar format where supported (e.g. Parquet).
 
+#### Optimization flow (what runs first?)
+
+```mermaid
+flowchart TB
+  A[SQL or DataFrame API] --> B[Parse + Analyze]
+  B --> C[Logical plan]
+  C --> D[RBO: Catalyst rule-based optimizations]
+  D --> E{Stats available?}
+  E -- yes --> F[CBO: cost-based decisions<br/>join reorder / join strategy guidance]
+  E -- no --> G[Skip / limited CBO]
+  F --> H[Physical planning]
+  G --> H
+  H --> I[Tungsten: codegen + memory optimizations]
+  I --> J[Execution]
+  J --> K[AQE: runtime plan adjustments<br/>coalesce partitions, skew join, join switch]
+  J --> L[Vectorized scan (Parquet/ORC) when supported]
+```
+
+#### Pushdown & pruning: where they act
+
+```mermaid
+flowchart LR
+  Q[Query: filter + select] --> P[Catalyst]
+  P --> RBO[RBO: rewrite plan<br/>column pruning, constant folding]
+  RBO --> DS[Data source scan]
+  DS -->|Predicate pushdown| DS
+  DS -->|Projection pushdown| DS
+  DS -->|Partition pruning (if partitioned)| DS
+  DS --> EX[Executors process fewer rows/cols]
+```
+
 ---
 
 ### Differences between Spark 2.0, 3.0, and 4.0 (optimizations)
