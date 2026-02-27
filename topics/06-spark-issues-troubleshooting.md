@@ -37,14 +37,14 @@ flowchart TB
   B --> C[Logical plan]
   C --> D[RBO: Catalyst rule-based optimizations]
   D --> E{Stats available?}
-  E -- yes --> F[CBO: cost-based decisions<br/>join reorder / join strategy guidance]
+  E -- yes --> F[CBO: cost-based decisions (uses stats)]
   E -- no --> G[Skip / limited CBO]
   F --> H[Physical planning]
   G --> H
   H --> I[Tungsten: codegen + memory optimizations]
   I --> J[Execution]
-  J --> K[AQE: runtime plan adjustments<br/>coalesce partitions, skew join, join switch]
-  J --> L[Vectorized scan (Parquet/ORC) when supported]
+  J --> K[AQE: runtime plan adjustments]
+  J --> L[Vectorized scan when supported]
 ```
 
 #### Pushdown & pruning: where they act
@@ -52,7 +52,7 @@ flowchart TB
 ```mermaid
 flowchart LR
   Q[Query: filter + select] --> P[Catalyst]
-  P --> RBO[RBO: rewrite plan<br/>column pruning, constant folding]
+  P --> RBO[RBO: rewrite plan]
   RBO --> DS[Data source scan]
   DS -->|Predicate pushdown| DS
   DS -->|Projection pushdown| DS
