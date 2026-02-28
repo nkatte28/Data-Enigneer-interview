@@ -5,9 +5,11 @@
 By the end of this topic, you should be able to:
 - Design scalable data platforms from scratch
 - Choose between data lakes, warehouses, and lakehouses
+- Map data volumes and data types (structured/semi/unstructured) to storage and processing choices
+- Decide when to use single-cloud vs multi-cloud and when to apply Medallion vs Lambda
 - Handle petabyte-scale data efficiently
 - Implement data quality measures at scale
-- Explain trade-offs in architectural decisions
+- Explain trade-offs in architectural decisions using simple flow diagrams and examples
 
 ---
 
@@ -256,6 +258,125 @@ expectation_suite = {
 - **Gold**: Business-level aggregates
 
 **Use Case**: Modern data lakehouse approach
+
+---
+
+## 🔧 Data Engineering System Design (Practical Frame)
+
+A compact frame for designing data systems: **modeling**, **volumes**, **data types**, **cloud choice**, and **when to use which design**. Use this to scope a solution before diving into a specific cloud or tool.
+
+### 1. Data Volumes → Design Fit
+
+| Volume (approx) | Design focus | Typical choices |
+|-----------------|--------------|------------------|
+| **Small (&lt; 100 GB/day)** | Single pipeline, minimal ops | Serverless (Glue, Lambda), Athena or single-warehouse (Redshift/BigQuery), one cloud |
+| **Medium (100 GB – 1 TB/day)** | Partitioning, incremental processing | Medallion on S3/ADLS/GCS; Spark (EMR/Databricks) for transforms; warehouse for BI |
+| **Large (&gt; 1 TB/day)** | Distributed, scalable ingest + process | Streaming (Kinesis/Kafka) + batch; multiple workers; consider multi-region and lifecycle policies |
+
+**Takeaway**: Scale drives whether you need streaming, how many workers, and how strict partitioning and lifecycle must be.
+
+---
+
+### 2. Types of Data → Where It Goes
+
+| Type | Examples | Storage | Processing |
+|------|----------|---------|------------|
+| **Structured** | DB tables, CSV, fixed schema | Warehouse, or lake (Parquet/Delta) | ETL, CDC, SQL |
+| **Semi-structured** | JSON, XML, logs | Data lake (object store) | Schema-on-read, Spark/Glue |
+| **Unstructured** | Images, PDFs, audio | Object store (S3, Blob, GCS) | ML pipelines, search, minimal “schema” |
+
+**Modeling note**: For analytics, structured and semi-structured usually land in **star/snowflake** or **one-big-table** in the gold layer (see Topic 2: Data Modeling). Bronze/silver stay closer to source shape; gold is modeled for consumption.
+
+---
+
+### 3. Cloud and Design Choices
+
+| Scenario | Prefer | Why |
+|----------|--------|-----|
+| **Single org, one cloud** | One cloud (AWS, GCP, or Azure) | Simpler, fewer moving parts, native integrations |
+| **Compliance / data residency** | Region-specific or sovereign cloud | Keep data in required geography |
+| **Multi-org or post-merger** | Multi-cloud or hybrid | Different teams/contracts; gradual migration |
+| **Best “default” design** | **Medallion (Bronze/Silver/Gold)** on object store + optional warehouse | Clear layers, schema evolution, batch + streaming possible |
+
+**When to add Lambda (batch + speed layer)**:
+- You need **real-time** views and **historically correct** batch views and can maintain two code paths. Otherwise prefer **Kappa** (single stream) or **batch + materialized views**.
+
+---
+
+### 4. Sample Examples (Small Flows)
+
+**Example A: Retail — batch files + streaming events**
+
+- **Data**: Batch sales files (CSV/Parquet) daily; real-time click/order events (Kafka or Kinesis). Volume ~500 GB/day.
+- **Modeling**: Gold = star (sales fact, product/customer/store dims); silver = cleaned, deduplicated events and batch loads.
+
+```
+  Batch files          Streaming events
+       │                      │
+       ▼                      ▼
+  ┌─────────┐            ┌──────────┐
+  │  S3 /   │            │ Kinesis │
+  │  inbox  │            │ Kafka   │
+  └────┬────┘            └────┬────┘
+       │                      │
+       ▼                      ▼
+  ┌────────────────────────────────┐
+  │  Object store (Bronze)          │
+  │  Partitioned by date            │
+  └────────────┬───────────────────┘
+               ▼
+  ┌────────────────────────────────┐
+  │  Spark / Glue / Databricks     │
+  │  Silver: clean, dedupe, join    │
+  └────────────┬───────────────────┘
+               ▼
+  ┌────────────────────────────────┐
+  │  Gold: star schema / aggregates │
+  │  → Warehouse or Athena/Delta    │
+  └────────────────────────────────┘
+```
+
+**Example B: Single-cloud analytics (Medallion)**
+
+- **Data**: Mix of DB dumps (structured) and app logs (JSON). One cloud (e.g. AWS). Volume ~200 GB/day.
+- **Design**: Medallion on S3; Glue or Databricks for ETL; Athena or Redshift for SQL; optional Glue Catalog.
+
+```
+  DB (CDC/dump)    App logs (JSON)
+       │                 │
+       ▼                 ▼
+  ┌─────────────────────────────┐
+  │  Bronze (raw, partitioned)   │  ← S3
+  └─────────────┬───────────────┘
+                ▼
+  ┌─────────────────────────────┐
+  │  Silver (typed, validated)   │  ← Parquet/Delta
+  └─────────────┬───────────────┘
+                ▼
+  ┌─────────────────────────────┐
+  │  Gold (star / aggregates)     │  ← Delta or warehouse
+  └─────────────┬───────────────┘
+                ▼
+  ┌─────────────┴─────────────┐
+  │  Athena / Redshift / BI   │
+  └──────────────────────────┘
+```
+
+**Example C: Governed lake, multiple consumers**
+
+- **Data**: Sensitive (e.g. PII). Need access control and audit. Same medallion layout; access via IAM/Lake Formation or Unity Catalog.
+- **Flow**: Same as B, plus encryption (SSE-KMS), table/column-level permissions, and audit logs (CloudTrail / equivalent). No extra diagram—same flow, add governance layer.
+
+---
+
+### 5. Quick Checklist for Data Engineering System Design
+
+- **Volume**: Order of magnitude (GB vs TB/day) → drives serverless vs. cluster, and streaming vs. batch.
+- **Data types**: Structured vs. semi vs. unstructured → storage format and schema-on-read vs -write.
+- **Modeling**: Gold layer = star/snowflake or OBT for analytics (Topic 2); bronze/silver = source-aligned and cleaned.
+- **Cloud**: Single cloud first; multi-cloud only if needed (compliance, org boundaries).
+- **Pattern**: Prefer Medallion; add Lambda only if you need both real-time and batch-correct views and accept two pipelines.
+- **Governance**: Encryption, access control, and audit when data is sensitive or regulated.
 
 ---
 
