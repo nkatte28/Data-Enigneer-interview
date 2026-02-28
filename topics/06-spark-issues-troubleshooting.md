@@ -36,9 +36,9 @@ flowchart TB
   A[SQL or DataFrame API] --> B[Parse + Analyze]
   B --> C[Logical plan]
   C --> D[RBO: Catalyst rule-based optimizations]
-  D --> E{Stats available?}
-  E -- yes --> F[CBO: cost-based decisions (uses stats)]
-  E -- no --> G[Skip / limited CBO]
+  D --> E{Stats available}
+  E -->|yes| F[CBO cost based decisions]
+  E -->|no| G[Skip or limited CBO]
   F --> H[Physical planning]
   G --> H
   H --> I[Tungsten: codegen + memory optimizations]
