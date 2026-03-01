@@ -617,6 +617,11 @@ Spark processes data in parallel using tasks, where each task operates on a sing
 
 Spark partitions control parallelism during execution, while table partitions control physical data layout in storage. Misalignment between execution partitions and table partitions can lead to file fragmentation and performance degradation.
 
+
+Spark processes data in parallel using tasks, where each task operates on a single Spark partition. After a shuffle, the number of Spark partitions is controlled by the shuffle partition setting. When writing to a partitioned table, a single task may write to multiple storage partitions depending on the distribution of partition keys. Small file issues occur when the number of Spark partitions is too high relative to the data volume, or when the table is partitioned on a high-cardinality column, causing excessive file fragmentation. For example, if I process 1 TB of data using 2000 partitions, each partition produces roughly 512 MB per file, which is healthy. However, if I process only 50 GB using 2000 partitions, each partition would produce around 25 MB files, leading to small file problems and performance degradation.
+
+
+
 **Spark partitions** These are data chunks inside Spark’s memory.
 df = spark.read.parquet("s3://data/")
 df.rdd.getNumPartitions()
