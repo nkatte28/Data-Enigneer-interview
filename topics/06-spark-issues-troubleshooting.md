@@ -996,6 +996,12 @@ result = df1.join(df2, "join_key")
 
 #### Solution 4: Repartition Before Join
 
+repartition only helps if your data is "Input Skewed" (unbalanced files), not "Key Skewed" (unbalanced values).
+Scenario A (File Skew): You have 10 files on disk. 9 files are 1KB, and 1 file is 100GB.
+Fix: `df.repartition(100)` will spread that 100GB across 100 workers so they can at least read it into memory without crashing.
+Scenario B (Key Skew): You have a groupBy("city") and "NYC" has 90% of your data.
+Fix: repartition does nothing. You must use Salting
+
 Repartition DataFrames on join key before joining.
 
 ```python
@@ -1010,6 +1016,7 @@ result = df1.join(df2, "join_key")
 **Best Practice**: Always repartition your data based on join column before huge operations.
 
 #### Solution 5: Key Salting (Advanced)
+
 
 **Salting** = Adding a random value to join key to redistribute data evenly.
 
@@ -1041,6 +1048,42 @@ result = result.groupBy("join_key").agg(...)
 
 **When to use**: When join key is highly skewed and other methods don't work.
 
+1. The Original Problem
+Imagine you have 100 rows for Customer 123.
+When you try to JOIN, Spark says: "I must put all '123' rows in Folder A."
+Result: One computer is sweating while processing Folder A, and all other computers are sitting idle.
+
+2. The "Salted" Large Table
+When we add the salt in step 2 of the code:
+python
+# We turn ID 123 into 123_0, 123_1, 123_2... randomly
+df_transactions_salted = df_transactions.withColumn("salt", (F.rand() * 3
+Your data now looks like this:
+Row 1: 123, salt: 0
+Row 2: 123, salt: 1
+Row 3: 123, salt: 2
+Row 4: 123, salt: 0 ... and so on.
+Now, Spark sees these as different keys. It puts 123_0 in Folder A, 123_1 in Folder B, and 123_2 in Folder C. The work is now spread out!
+
+3. The "Exploded" Small Table (The Trick)
+This is the part that usually confuses people. If we try to join the tables now, 123_1 won't match anything in the customer list because the customer list only has 123.
+So, we duplicate the customer info for every possible salt:
+Original: 123, "John Doe"
+New Exploded Version:
+123, salt: 0, "John Doe"
+123, salt: 1, "John Doe"
+123, salt: 2, "John Doe"
+
+4. The Final Join
+Now, when the computers look at their folders:
+Computer A finds 123_0 in the transactions and matches it with 123_0 in the customer info.
+Computer B finds 123_1 in the transactions and matches it with 123_1 in the customer info.
+Everyone is working at the same time. You get the same result as a normal join, but 10x faster because you used 10 computers instead of 1.
+
+   Key Summary
+Salt: A random number used to split a "big" key into pieces.
+Explode: Copying the "small" table so it can find all those pieces.
+
 #### Solution 6: Cache DataFrames Before Heavy Operations
 
 ```python
@@ -1056,10 +1099,25 @@ df2.take(1)
 result = df1.join(df2, "join_key")
 ```
 
-**Why**: Caching optimizes performance by avoiding recomputation.
+1. How Caching Helps with Skew
+Avoids Re-computation: If your data is skewed, the first time you process it (like a large join) will be very slow. By calling .cache(), you store that expensive, finished result in memory so subsequent actions don't have to suffer through the skew again.
+Stabilizes Iterative Work: In machine learning or multi-step reports where the same skewed DataFrame is used in 5 different joins, caching prevents Spark from re-calculating the skewed "straggler" tasks 5 times. 
+Medium
+Medium
+ +4
+2. The Big Risk: "The Cache Crash"
+Caching can actually make things worse if your skew is severe:
+Memory Pressure: A skewed partition is, by definition, much larger than others. If one partition is 5GB and your executor only has 4GB of memory, trying to .cache() will cause an Out of Memory (OOM) error or force Spark to spill that partition to disk, making it extremely slow.
+Eviction: If your skewed partition is too big, Spark might "evict" (delete) smaller, useful partitions to make room for it, slowing down the rest of your job. 
+Unravel Data
+Unravel Data
+ +4
+3. Best Practices for Caching Skewed Data
+Cache AFTER Fixing Skew: Ideally, apply salting or filtering first to balance the partitions, then cache the balanced result.
+Use persist for Large Data: If you suspect the skewed data won't fit in RAM, use .persist(StorageLevel.MEMORY_AND_DISK). This allows the "giant" skewed partitions to live on the disk while the smaller ones stay fast in memory.
+Unpersist when Done: Always call .unpersist() once you no longer need the data to free up that memory for the next heavy operation.
 
 ### Detection: How to Identify Skew
-
 **Spark UI**:
 - Check **Stage** view: look for tasks with much longer duration than others
 - Check **Executor** view: some executors processing much more data
