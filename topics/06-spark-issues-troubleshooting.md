@@ -616,7 +616,7 @@ Spark processes data in parallel using tasks, where each task operates on a sing
 
 Spark partitions control parallelism during execution, while table partitions control physical data layout in storage. Misalignment between execution partitions and table partitions can lead to file fragmentation and performance degradation.
 
-**Spark partitions : **These are data chunks inside Spark’s memory.
+**Spark partitions** These are data chunks inside Spark’s memory.
 df = spark.read.parquet("s3://data/")
 df.rdd.getNumPartitions()
 If it says 100 →
