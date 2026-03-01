@@ -612,8 +612,61 @@ spark.conf.set("spark.yarn.executor.memoryOverhead", "1024")  # MB
 
 ### Problem
 
-Spark is a parallel processing system where data loading is done through multiple tasks. Each task can load into multiple partitions.
+Spark processes data in parallel using tasks, where each task operates on a single Spark partition. However, when writing to partitioned tables, a single task may write data to multiple table partitions depending on how data is distributed across partition keys.
 
+Spark partitions control parallelism during execution, while table partitions control physical data layout in storage. Misalignment between execution partitions and table partitions can lead to file fragmentation and performance degradation.
+
+**Spark partitions : **These are data chunks inside Spark’s memory.
+df = spark.read.parquet("s3://data/")
+df.rdd.getNumPartitions()
+If it says 100 →
+Your DataFrame has 100 Spark partitions.
+Important:
+1 Spark partition → processed by 1 task
+Controls parallelism
+Exists during execution
+
+**Shuffle partitions**
+These are created only during shuffle operations.
+Triggered by:
+groupBy
+join
+distinct
+repartition
+orderBy
+Controlled by:
+spark.conf.get("spark.sql.shuffle.partitions")
+Default = 200
+When shuffle happens: Spark redistributes data, Creates N shuffle partitions
+Each becomes 1 task in next stage
+They are just a special type created during redistribution.
+
+**Table partitions**
+These are physical directories in storage.
+df.write.partitionBy("date").save("path")
+/path/date=2026-03-01/
+/path/date=2026-03-02/
+/path/date=2026-03-03/
+
+These are NOT Spark partitions.
+They are:
+Folder-level organization
+Used for partition pruning
+Purely storage-level optimization
+
+**Tasks**
+A task is the smallest unit of execution.
+1 Spark partition = 1 task
+If you have:
+
+200 Spark partitions
+4 executors × 4 cores = 16 cores total
+
+Then:
+16 tasks run in parallel
+Remaining 184 wait
+
+✔️ 1 Task can write to multiple Table Partitions
 **Example Scenario**:
 - `spark.sql.shuffle.partitions = 200`
 - Target table partitioned by `date` (50 partitions)
