@@ -252,3 +252,9 @@ flowchart TB
 - **SCD** is the **logic** you implement inside (or on top of) merge: Type 1 = update in place; Type 2 = end-date old row + insert new row; etc.
 
 **Reasons in one sentence:** CDC and CDF limit work to **changes**; Delta merge applies those changes **efficiently and atomically**; SCDs define **how** dimension history (or lack of it) is stored and queried.
+
+---
+
+## Next steps
+
+Once you're comfortable with CDC, CDF, Delta merge, and SCDs, move on to the next topic in your study plan (e.g. **Topic 8: Python for Data Engineering** or **Advanced SQL**). Practice implementing merge and SCD Type 2 in Spark/Delta.

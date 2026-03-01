@@ -14,7 +14,7 @@ DataEngineerInterviewPrep/
 │   ├── 04-data-pipeline-design.md
 │   ├── 05-spark-architecture.md
 │   ├── 06-spark-issues-troubleshooting.md
-│   ├── 07-advanced-sql.md
+│   ├── 07-cdc-cdf-delta-merge-scd.md
 │   ├── 08-python-data-engineering.md
 │   ├── 09-etl-elt-pipelines.md
 │   ├── 10-realtime-processing.md
@@ -73,9 +73,10 @@ DataEngineerInterviewPrep/
 4. Then `topics/04-data-pipeline-design.md` for pipeline design and implementation
 5. Then `topics/05-spark-architecture.md` for Spark architecture and fundamentals
 6. Then `topics/06-spark-issues-troubleshooting.md` for Spark troubleshooting and optimization
-7. Read through concepts and examples
-8. Practice questions in `practice-questions/`
-9. Track your progress in `notes/progress-tracker.md`
+7. Then `topics/07-cdc-cdf-delta-merge-scd.md` for CDC, CDF, Delta merge, and SCDs
+8. Read through concepts and examples
+9. Practice questions in `practice-questions/`
+10. Track your progress in `notes/progress-tracker.md`
 
 ## 📝 Study Approach
 

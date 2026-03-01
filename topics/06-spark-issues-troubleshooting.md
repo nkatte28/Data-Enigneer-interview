@@ -5,6 +5,7 @@
 By the end of this topic, you should be able to:
 - **Optimizations:** Explain Spark default optimization methods (RBO, CBO, AQE), Catalyst, predicate/projection pushdown, column/partition pruning, constant folding, join reordering; Tungsten and vectorized execution; and how they apply to tables vs DataFrames
 - **Engineer practices:** Know what to do so inbuilt optimizations work better (filters, column selection, statistics, skew, partitioning) and what extra optimizations to add (repartition, coalesce, broadcast, etc.)
+- **Large data playbook:** Apply the senior playbook for handling large data (sizing mindset, read less, file layout, partitioning/parallelism, safe joins, shuffle management, cache wisely, incremental builds, cluster strategy, Spark UI)
 - Identify and resolve common Spark OutOfMemory (OOM) errors
 - Understand and fix data skewness issues in Spark
 - Handle small files problem in Spark and Hive
@@ -252,6 +253,163 @@ These are **explicit** choices you make in code or config; they complement the a
 
 6. **Caching**
    - Cache only when a dataset is reused multiple times; unpersist when done to free memory.
+
+---
+
+### Handling Large Amount of Data in Spark (Senior Playbook)
+
+This section summarizes a **sizing-first, data-minimizing** approach to large data in Spark—useful for interviews and production.
+
+#### 1) Start with a sizing mindset (don't guess)
+
+Large data handling is mostly about:
+
+- **Bytes per task**
+- **Shuffle volume**
+- **Skew**
+- **File layout**
+
+**Healthy target:** ~128–512 MB per task for scan-heavy workloads; smaller if doing heavy joins/aggregations.
+
+---
+
+#### 2) Read less data (most underrated)
+
+**A) Filter early + project early**
+
+- Push filters as close to source as possible.
+- Select only needed columns.
+- **Why:** Reduces memory, I/O, and shuffle.
+
+**B) Partition pruning / predicate pushdown**
+
+- Partition tables by date/hour (low–medium cardinality).
+- Always filter by partition column in queries when possible.
+
+---
+
+#### 3) Fix file layout (small files kill "large data" jobs)
+
+**A) Avoid too many small files**
+
+- Right-size partitions before write.
+- Compact periodically (e.g. Delta `OPTIMIZE`).
+
+**B) Aim for good file sizes**
+
+- 128–512 MB files.
+- Avoid tiny (5–20 MB) files.
+- Avoid huge multi-GB files (use `maxRecordsPerFile` if needed).
+
+---
+
+#### 4) Control partitioning and parallelism
+
+**A) Don't blindly use `repartition(2000)`**
+
+- Choose partitions based on **data size + cluster cores**.
+- **Rule:** More partitions → more parallelism but more overhead.
+- **Goal:** Enough tasks to use cores, but not so many that the driver thrashes.
+
+**B) Repartition by the right key before joins/aggregations**
+
+- If joining on `customer_id`, consider repartitioning by join key when needed.
+- Only if it reduces skew or improves locality.
+
+---
+
+#### 5) Make joins safe (large data dies on joins)
+
+**A) Broadcast join when one side is small**
+
+- Avoids shuffling the large table.
+
+**B) Handle skew explicitly**
+
+- AQE skew join.
+- Split hot keys.
+- Salting.
+
+**C) Prefer join order that reduces data early**
+
+- Filter the big table first.
+- Join with selective dimensions first.
+
+---
+
+#### 6) Manage shuffle (most OOM comes from shuffle)
+
+**Triggers:** join, `groupBy`, `distinct`, `orderBy`, windows.
+
+**Senior approach:**
+
+- Reduce data **before** shuffle.
+- Keep shuffle partitions reasonable.
+- Watch shuffle spill in Spark UI.
+
+---
+
+#### 7) Cache only when it's truly beneficial
+
+Caching large datasets without reuse is a classic failure pattern.
+
+**✅ Cache when:**
+
+- Reused multiple times.
+- Expensive to recompute.
+- Fits (or use `MEMORY_AND_DISK`).
+
+**✅ Always:**
+
+- `unpersist()` after last use.
+
+---
+
+#### 8) Build incrementally (don't reprocess everything)
+
+For "large" pipelines, you almost always want:
+
+- **Incremental loads** (date range / watermark).
+- **CDC / change data feed** (when available).
+- **MERGE** only what changed (carefully, with compaction after).
+
+---
+
+#### 9) Choose the right cluster strategy
+
+**A) Horizontal scaling for throughput**
+
+- More executors = more parallelism.
+- But only helps if partitions are balanced.
+
+**B) Vertical scaling helps single-task memory**
+
+- If tasks are heavy per partition, you need more memory per executor.
+
+**Senior rule:**
+
+- **Scale horizontally** for parallelism.
+- **Scale vertically** when per-task memory is the bottleneck.
+
+Also: tune cores vs memory—too many cores per executor → too many concurrent tasks → GC/OOM.
+
+---
+
+#### 10) Debug using Spark UI (non-negotiable)
+
+For large data you **must** use Spark UI to check:
+
+- **Skew** (task duration variance).
+- **Shuffle read/write.**
+- **Spill to disk.**
+- **Scheduler delay.**
+- **Stage DAG** (where time is spent).
+
+---
+
+#### Senior-level "how I handle large data" answer (interview-ready)
+
+> **"To handle large datasets in Spark, I focus on minimizing data movement and keeping per-task work within healthy bounds. I reduce I/O by filtering and projecting early, enforce a storage layout that supports pruning and avoids small files, and choose partition counts based on target bytes per task. For joins and aggregations, I control shuffle by using broadcast joins when feasible, addressing skew with AQE or salting, and monitoring spill metrics. I cache only reusable intermediates and always unpersist. Finally, I tune cluster resources based on whether the bottleneck is parallelism or per-task memory, validating changes via Spark UI."**
 
 ---
 
@@ -1778,7 +1936,7 @@ spark.conf.set("spark.executor.extraJavaOptions",
 ## 🎯 Next Steps
 
 Once you're comfortable with Spark troubleshooting, move on to:
-- **Topic 7: Advanced SQL** (or next topic in your study plan)
+- **Topic 7: CDC, CDF, Delta merge, and SCDs** (`topics/07-cdc-cdf-delta-merge-scd.md`)
 
 **Study Time**: Spend 2-3 days on this topic, practice troubleshooting scenarios.
 
