@@ -1102,16 +1102,12 @@ result = df1.join(df2, "join_key")
 1. How Caching Helps with Skew
 Avoids Re-computation: If your data is skewed, the first time you process it (like a large join) will be very slow. By calling .cache(), you store that expensive, finished result in memory so subsequent actions don't have to suffer through the skew again.
 Stabilizes Iterative Work: In machine learning or multi-step reports where the same skewed DataFrame is used in 5 different joins, caching prevents Spark from re-calculating the skewed "straggler" tasks 5 times. 
-Medium
-Medium
- +4
+
 2. The Big Risk: "The Cache Crash"
 Caching can actually make things worse if your skew is severe:
 Memory Pressure: A skewed partition is, by definition, much larger than others. If one partition is 5GB and your executor only has 4GB of memory, trying to .cache() will cause an Out of Memory (OOM) error or force Spark to spill that partition to disk, making it extremely slow.
 Eviction: If your skewed partition is too big, Spark might "evict" (delete) smaller, useful partitions to make room for it, slowing down the rest of your job. 
-Unravel Data
-Unravel Data
- +4
+
 3. Best Practices for Caching Skewed Data
 Cache AFTER Fixing Skew: Ideally, apply salting or filtering first to balance the partitions, then cache the balanced result.
 Use persist for Large Data: If you suspect the skewed data won't fit in RAM, use .persist(StorageLevel.MEMORY_AND_DISK). This allows the "giant" skewed partitions to live on the disk while the smaller ones stay fast in memory.
