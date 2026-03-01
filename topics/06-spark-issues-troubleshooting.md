@@ -269,7 +269,23 @@ These are **explicit** choices you make in code or config; they complement the a
 
 ---
 
+OOM in Spark typically falls into driver OOM or executor OOM.
+Driver OOM is often caused by collecting large results, too many tasks from small files, or overly complex plans; I fix action patterns first
+
+Executor OOM is commonly caused by oversized partitions, memory-heavy operators like joins/aggregations/sorts, excessive caching, or large shuffle stages; I reduce per-task memory pressure via partition sizing, join strategy (broadcast/AQE), caching discipline, and early filtering/column pruning
+
+If OOM is driven by skew, scaling won’t help much because the data concentrates in one partition, so I mitigate by skew handling—broadcast, AQE skew join optimization, hot-key splitting, or salting—and I also look upstream for default keys causing skew.
+
 ## 🔴 Issue 1: Executor OutOfMemory (OOM)
+
+Executor OOM is typically caused by oversized partitions or memory-heavy operators like joins/aggregations/sorts. I reduce per-task memory pressure first—partition sizing, join strategy, caching discipline—then tune executor sizing.
+
+Executors store:
+Shuffle buffers
+Cached/persisted partitions
+Join hash tables / aggregates
+Sort buffers
+DataFrame partitions being processed by tasks
 
 ### Symptoms
 - Job fails with `java.lang.OutOfMemoryError: Java heap space`
@@ -277,6 +293,13 @@ These are **explicit** choices you make in code or config; they complement the a
 - Spark UI shows some executors taking much longer than others
 
 ### Root Causes
+Large partition size (too few partitions)
+Large joins without broadcast
+Large aggregation / groupBy on high-cardinality keys
+Sort-heavy operations (orderBy, window functions)
+Bad repartition strategy causing huge partitions
+Too much caching (especially MEMORY_ONLY)
+Too many concurrent tasks per executor (cores too high for memory)
 
 **1. Insufficient Executor Memory**
 - Executor doesn't have enough memory to process its partition
@@ -358,16 +381,30 @@ spark.conf.set("spark.executor.memoryFraction", "0.8")
 
 ## 🔴 Issue 2: Driver OutOfMemory (OOM)
 
+I treat driver OOM as a design smell—usually caused by 
+collecting data, 
+excessive task metadata, 
+or overly complex plans. 
+I fix the action pattern first, then tune driver resources if needed.
+
 ### Symptoms
 - Driver JVM runs out of memory
 - Job fails when calling actions like `collect()`, `take()`, `show()`
 - Error: `java.lang.OutOfMemoryError` in driver logs
+
+Driver memory is used for:
+Query planning / logical + physical plan generation
+Task scheduling metadata (many tasks)
+Collecting results to the driver
+Broadcast management (driver coordinates broadcast)
+Maintaining lineage, shuffle metadata, job progress structures
 
 ### Root Causes
 
 **1. Collecting Too Much Data**
 - `collect()` brings all data from all workers to the driver
 - Driver JVM cannot hold large datasets
+countDistinct/groupBy producing huge results and collecting them
 
 **2. Large Broadcast Variables**
 - Broadcasting DataFrame that's too large
@@ -376,6 +413,7 @@ spark.conf.set("spark.executor.memoryFraction", "0.8")
 **3. Driver Memory Too Small**
 - Driver memory insufficient for metadata and operations
 
+countDistinct/groupBy producing huge results and collecting them
 ### Solutions
 
 #### Solution 1: Avoid Collecting Large Datasets
@@ -448,6 +486,8 @@ java.lang.OutOfMemoryError: GC overhead limit exceeded
 ### What is Garbage Collection?
 
 **Garbage** refers to memory that is no longer being used or referenced by the program, but has not been explicitly freed. This memory is called "garbage" because it is no longer needed by the program and can be safely discarded.
+
+GC Overhead Limit Exceeded means the JVM is spending most of its time in garbage collection while reclaiming little memory, so the job isn’t progressing. In Spark this is typically caused by memory pressure from large shuffle partitions, skewed joins/aggregations, or excessive caching, and sometimes by driver-side actions like collect/toPandas. I diagnose whether it’s driver or executor via logs and Spark UI, then reduce per-task memory by fixing partition sizing, join strategy (broadcast/AQE/salting), and caching discipline. Only after that do I tune executor memory/cores or increase resources.
 
 **GC Overhead Limit Exceeded** occurs when:
 - The program generates too much garbage
