@@ -726,6 +726,49 @@ Read file footers (Parquet metadata)
 
 ### Solutions in Spark
 
+Spark can reduce the runtime impact of small partitions via AQE and can minimize reads via partition pruning and file skipping, but it won’t magically fix physical file fragmentation. 
+As a developer, I prevent small files by right-sizing partitions before writes and aligning repartitioning with table partition columns. 
+For ongoing fragmentation from streaming or MERGE workloads, I run periodic compaction (e.g., Delta OPTIMIZE / auto compaction) and monitor file count and average file size per partition.
+
+Inbuilt Spark/Delta capabilities (what helps automatically)
+1.AQE coalescing shuffle partitions (reduces tiny shuffle tasks)
+Spark’s Adaptive Query Execution can reduce the number of shuffle partitions at runtime when partitions are too small.
+What it helps with:
+Fewzr tiny shuffle tasks
+Better runtime efficiency
+What it does not do:
+It does not automatically merge your existing storage files.
+2. Partition pruning + file pruning
+If your table is partitioned well and your query filters on partition columns:
+Spark reads fewer partitions/folders
+Delta can skip some files using stats (data skipping)
+This reduces how many files get touched during reads.
+But again:
+it doesn’t remove small files, it just reads fewer of them.
+3. Databricks/Delta features that directly address file size (if available)
+These are “inbuilt” in the platform (Databricks, not vanilla Spark):
+Optimize Write: writes better sized files during writes
+Auto Compaction: compacts small files automatically after writes
+OPTIMIZE command: explicit compaction of many small files into larger ones
+ZORDER: improves read locality for common filter columns (not primarily file count, but often used together)
+These are the closest thing to “inbuilt small-file fixes.”
+
+As a developer you should:
+Right-size output partitions before write
+Goal: fewer output partitions → fewer output files → larger file size.
+`df.coalesce(200).write.format("delta").mode("append").saveAsTable("t")`
+If you need redistribution (shuffle) and you want alignment:
+`(df
+ .repartition(200, "date")   # align with table partition column
+ .write.format("delta")
+ .mode("append")
+ .partitionBy("date")
+ .saveAsTable("t"))`
+Rule of thumb: target ~128–512MB per output file for analytics.
+
+Choose table partition columns correctly
+Compact as a regular maintenance step (batch/streaming)
+
 #### Solution 1: Repartition on Partition Keys
 
 ```python
