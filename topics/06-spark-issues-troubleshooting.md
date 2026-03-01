@@ -612,6 +612,7 @@ spark.conf.set("spark.yarn.executor.memoryOverhead", "1024")  # MB
 
 ### Problem
 
+**what are small files:**
 Spark processes data in parallel using tasks, where each task operates on a single Spark partition. However, when writing to partitioned tables, a single task may write data to multiple table partitions depending on how data is distributed across partition keys.
 
 Spark partitions control parallelism during execution, while table partitions control physical data layout in storage. Misalignment between execution partitions and table partitions can lead to file fragmentation and performance degradation.
@@ -667,7 +668,38 @@ Then:
 Remaining 184 wait
 
 ✔️ 1 Task can write to multiple Table Partitions
-**Example Scenario**:
+
+**How to Identify Small File Issues**
+Storage-Level Deep Inspection: Count files per partition folder
+Delta Table Metadata Deep Check: `DESCRIBE DETAIL table_name;`
+Spark UI – Advanced Analysis: Stage shows 10,000 tasks, Total input = 50GB, Each task ≈ 5MB , That’s a small file pattern.
+Scheduler Delay: the time a task spends waiting before it actually starts executing on an executor.
+Query Behavior Patterns: count(*) is slow, Simple filter query is slow, Reading even small date partitions takes long
+
+I first calculate average file size from table metadata and inspect file count per partition. Then I analyze Spark UI to check input size per task, total task count, and scheduler delay. Small file problems typically show excessive task counts with low input size per task and disproportionate scheduling overhead. Additionally, I validate cloud storage API request patterns and driver CPU utilization to confirm metadata overhead is dominating execution.
+
+**Why do we get small files:**
+Small file problems can originate at both execution and storage layers. 
+At the execution layer, excessive shuffle partitions or repartitioning creates many output files. 
+At the storage layer, poor table partitioning strategy or frequent MERGE operations cause file fragmentation within partition directories. The worst cases occur when execution partitioning and table partitioning are misaligned.
+
+1. Too Many Spark Partitions at Write Time
+   `df.repartition(2000).write.format("delta").save()`
+   You create 2000 Spark partitions, 2000 tasks, Each task writes at least one file
+   This is purely execution-level partitioning problem, not table partitioning.
+
+2. Shuffle Partitions Too High:
+   `spark.sql.shuffle.partitions = 2000`
+   2000 partitions created, 2000 tasks write files,Even if table isn't partitionedd, you still get 2000 files.
+
+3. Streaming / Micro-Batches:
+   Processes small data,Writes output files
+
+4. Small Files Caused by Table Partitioning Strategy (Storage-Level Issues):
+   Over-Partitioning by High Cardinality Column
+   `df.write.partitionBy("user_id")`
+
+5. Many Table Partitions + Many Spark Partitions
 - `spark.sql.shuffle.partitions = 200`
 - Target table partitioned by `date` (50 partitions)
 - Each of 200 tasks can write to 50 partitions
@@ -675,11 +707,17 @@ Remaining 184 wait
 - If loading 4 times/day → **40,000 files per day**
 
 ### Why Small Files Are Bad
+Small files introduce excessive metadata overhead, increase task scheduling costs, and reduce IO efficiency. 
+In cloud object storage environments, listing and opening thousands of small files significantly increases latency. A
+dditionally, excessive Spark tasks caused by small files create driver pressure and inefficient CPU utilization. 
+Proper file sizing and compaction are essential for maintaining scalable performance.
 
 - **Query latency**: Reading many small files is slower than reading fewer large files
-- **Metadata overhead**: NameNode (HDFS) or S3 metadata operations become expensive
-- **NameNode memory**: Too many files can cause NameNode to run out of metadata space
-- **Inefficient I/O**: Many small I/O operations instead of fewer large ones
+- **Metadata overhead**: Many small files = heavy metadata operations.
+    Spark must: List files, Fetch metadata, Open file handles
+Read file footers (Parquet metadata)
+
+- **Inefficient I/O**: Many small I/O operations instead of fewer large ones, Lower throughput per task
 
 ### Solutions in Spark
 
