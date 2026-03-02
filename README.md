@@ -15,8 +15,8 @@ DataEngineerInterviewPrep/
 │   ├── 05-spark-architecture.md
 │   ├── 06-spark-issues-troubleshooting.md
 │   ├── 07-cdc-cdf-delta-merge-scd.md
-│   ├── 08-python-data-engineering.md
-│   ├── 09-etl-elt-pipelines.md
+│   ├── 08-building-scalable-data-pipelines.md
+│   ├── 09-managerial-round.md
 │   ├── 10-realtime-processing.md
 │   ├── 11-aws-services.md
 │   ├── 12-data-quality.md
@@ -47,6 +47,7 @@ DataEngineerInterviewPrep/
 8. **Cloud Technologies (AWS)** - Kinesis, Redshift, S3, etc.
 9. **Data Quality** - Validation, monitoring, governance
 10. **Behavioral** - Managing data quality, mentoring, leadership
+11. **Managerial Round** - Leadership, team scaling, conflict resolution, stakeholder management
 
 ## 📚 Study Plan
 
@@ -64,6 +65,7 @@ DataEngineerInterviewPrep/
 - [ ] **AWS Services**
 - [ ] **Data Quality & Monitoring**
 - [ ] **Behavioral & Leadership**
+- [ ] **Managerial Round**
 
 ## 🚀 Getting Started
 
@@ -74,9 +76,11 @@ DataEngineerInterviewPrep/
 5. Then `topics/05-spark-architecture.md` for Spark architecture and fundamentals
 6. Then `topics/06-spark-issues-troubleshooting.md` for Spark troubleshooting and optimization
 7. Then `topics/07-cdc-cdf-delta-merge-scd.md` for CDC, CDF, Delta merge, and SCDs
-8. Read through concepts and examples
-9. Practice questions in `practice-questions/`
-10. Track your progress in `notes/progress-tracker.md`
+8. Then `topics/08-building-scalable-data-pipelines.md` for scalable pipeline design
+9. Then `topics/09-managerial-round.md` for leadership and managerial interview prep
+10. Read through concepts and examples
+11. Practice questions in `practice-questions/`
+12. Track your progress in `notes/progress-tracker.md`
 
 ## 📝 Study Approach
 
