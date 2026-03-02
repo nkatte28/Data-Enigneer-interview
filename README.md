@@ -17,7 +17,7 @@ DataEngineerInterviewPrep/
 │   ├── 07-cdc-cdf-delta-merge-scd.md
 │   ├── 08-building-scalable-data-pipelines.md
 │   ├── 09-managerial-round.md
-│   ├── 10-realtime-processing.md
+│   ├── 10-kv-specific.md
 │   ├── 11-aws-services.md
 │   ├── 12-data-quality.md
 │   └── 13-behavioral.md
@@ -48,6 +48,7 @@ DataEngineerInterviewPrep/
 9. **Data Quality** - Validation, monitoring, governance
 10. **Behavioral** - Managing data quality, mentoring, leadership
 11. **Managerial Round** - Leadership, team scaling, conflict resolution, stakeholder management
+12. **KV Specific** - Company/role-specific topics
 
 ## 📚 Study Plan
 
@@ -66,6 +67,7 @@ DataEngineerInterviewPrep/
 - [ ] **Data Quality & Monitoring**
 - [ ] **Behavioral & Leadership**
 - [ ] **Managerial Round**
+- [ ] **KV Specific**
 
 ## 🚀 Getting Started
 
@@ -78,9 +80,10 @@ DataEngineerInterviewPrep/
 7. Then `topics/07-cdc-cdf-delta-merge-scd.md` for CDC, CDF, Delta merge, and SCDs
 8. Then `topics/08-building-scalable-data-pipelines.md` for scalable pipeline design
 9. Then `topics/09-managerial-round.md` for leadership and managerial interview prep
-10. Read through concepts and examples
-11. Practice questions in `practice-questions/`
-12. Track your progress in `notes/progress-tracker.md`
+10. Then `topics/10-kv-specific.md` for KV-specific topics
+11. Read through concepts and examples
+12. Practice questions in `practice-questions/`
+13. Track your progress in `notes/progress-tracker.md`
 
 ## 📝 Study Approach
 
