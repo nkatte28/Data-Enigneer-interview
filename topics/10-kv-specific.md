@@ -4,6 +4,28 @@
 
 ---
 
+## 👋 Intro
+
+Hi, I'm Krishna. I'm a Senior Data Engineer based in Raleigh, NC, currently open to remote or Raleigh-based opportunities.
+
+I have over six years of experience working across data engineering and distributed systems, with strong hands-on expertise in Databricks, Spark, Delta Lake, Snowflake, Python, SQL, Airflow, and AWS. My background blends software engineering discipline with modern Lakehouse platform design, so I approach data systems not just from a pipeline perspective, but from an architecture and scalability standpoint.
+
+Most recently, I've been working as a Senior Data Engineer supporting large-scale analytics platforms built on Databricks. One of my key initiatives was leading the migration of over 40 production pipelines from Matillion and Snowflake to Databricks. I owned the effort end-to-end — from architectural design and PySpark development to orchestration, monitoring, and performance optimization. That migration resulted in approximately a 35% runtime improvement and about a 25% reduction in infrastructure costs.
+
+Beyond just pipeline migration, I focused heavily on standardizing Lakehouse architecture patterns. At Nike and Converse, I helped define scalable ingestion and transformation standards using Delta Lake, partitioning strategies, schema evolution best practices, and optimized resource management so that teams could build reliable pipelines without reinventing patterns each time.
+
+I've worked extensively on high-volume Spark workloads powering supply chain, inventory, and marketing analytics. For example, I supported platforms that enabled executive dashboards and marketing insights, helping guide spend decisions with reliable and timely data. I enjoy partnering closely with analytics, product, and business stakeholders to translate evolving requirements into production-grade solutions.
+
+On the platform side, I've contributed to orchestration frameworks using Airflow and Brickflow, built DDL utilities as part of an internal Data Common Utils framework to auto-generate schemas across Databricks and Snowflake, and developed a Databricks PyDABs proof of concept to improve automation and developer productivity.
+
+Earlier in my career at Wells Fargo, I supported enterprise Hadoop environments where I built monitoring and logging frameworks, automated health checks, and participated in Sev-1 incident response. That experience gave me strong fundamentals in operating distributed systems reliably under production pressure.
+
+What excites me now is continuing to work at the intersection of scalable data platforms and evolving technologies. I'm particularly interested in environments where engineers have ownership over architecture and optimization, and where modern tooling like Spark, Databricks, and Lakehouse patterns are core to the ecosystem. I've also started exploring applied Generative AI in the context of data platforms — thinking about how AI-assisted workflows and intelligent automation can enhance data engineering productivity.
+
+Overall, I enjoy building scalable, reliable systems, owning pipelines end-to-end, and contributing to long-term platform direction rather than just delivering isolated tasks.
+
+---
+
 ## 🎯 Learning Goals
 
 By the end of this topic, you should be able to:
