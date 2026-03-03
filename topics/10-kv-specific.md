@@ -8,9 +8,15 @@
 
 Hi, I'm Krishna. I'm a Senior Data Engineer based in Raleigh, NC, currently open to remote or Raleigh-based opportunities.
 
-I have over six years of experience working across data engineering and distributed systems, with strong hands-on expertise in Databricks, Spark, Delta Lake, Snowflake, Python, SQL, Airflow, and AWS. My background blends software engineering discipline with modern Lakehouse platform design, so I approach data systems not just from a pipeline perspective, but from an architecture and scalability standpoint.
+I have over six years of experience working across data engineering and distributed systems, with strong hands-on expertise in Databricks, Spark, Delta Lake, Snowflake, Python, SQL, Airflow, and AWS.
 
-Most recently, I've been working as a Senior Data Engineer supporting large-scale analytics platforms built on Databricks. One of my key initiatives was leading the migration of over 40 production pipelines from Matillion and Snowflake to Databricks. I owned the effort end-to-end — from architectural design and PySpark development to orchestration, monitoring, and performance optimization. That migration resulted in approximately a 35% runtime improvement and about a 25% reduction in infrastructure costs.
+I started my career at Amazon right after college as a Seller Support Associate. While it wasn’t a technical role, it gave me strong exposure to corporate work culture, cross-functional collaboration, and understanding business requirements from a customer-centric perspective.
+
+After about a year, I transitioned into a technical role at Wells Fargo as a Systems Engineer, where I began working on enterprise Big Data platforms. That’s where I built my foundation in distributed systems, Hadoop ecosystems, monitoring frameworks, and production support.
+
+When I moved to the U.S., I had the opportunity at Nike to formally transition into a Data Engineering role. There, I worked extensively with Spark, large-scale analytics pipelines, and modern data platforms.
+
+Most recently, I’ve been working at Converse as a Senior Data Engineer, supporting large-scale analytics platforms built on Databricks. One of my key initiatives was leading the migration of over 40 production pipelines from Matillion and Snowflake to Databricks. I owned the effort end-to-end — from architectural design and PySpark development to orchestration, monitoring, and performance optimization. That migration resulted in approximately a 35% runtime improvement and about a 25% reduction in infrastructure costs.
 
 Beyond just pipeline migration, I focused heavily on standardizing Lakehouse architecture patterns. At Nike and Converse, I helped define scalable ingestion and transformation standards using Delta Lake, partitioning strategies, schema evolution best practices, and optimized resource management so that teams could build reliable pipelines without reinventing patterns each time.
 
@@ -18,10 +24,7 @@ I've worked extensively on high-volume Spark workloads powering supply chain, in
 
 On the platform side, I've contributed to orchestration frameworks using Airflow and Brickflow, built DDL utilities as part of an internal Data Common Utils framework to auto-generate schemas across Databricks and Snowflake, and developed a Databricks PyDABs proof of concept to improve automation and developer productivity.
 
-Earlier in my career at Wells Fargo, I supported enterprise Hadoop environments where I built monitoring and logging frameworks, automated health checks, and participated in Sev-1 incident response. That experience gave me strong fundamentals in operating distributed systems reliably under production pressure.
-
-What excites me now is continuing to work at the intersection of scalable data platforms and evolving technologies. I'm particularly interested in environments where engineers have ownership over architecture and optimization, and where modern tooling like Spark, Databricks, and Lakehouse patterns are core to the ecosystem. I've also started exploring applied Generative AI in the context of data platforms — thinking about how AI-assisted workflows and intelligent automation can enhance data engineering productivity.
-
+My background blends software engineering discipline with modern Lakehouse platform design, so I approach data systems not just from a pipeline perspective
 Overall, I enjoy building scalable, reliable systems, owning pipelines end-to-end, and contributing to long-term platform direction rather than just delivering isolated tasks.
 
 ---
