@@ -19,6 +19,15 @@ By the end of this topic, you should be able to:
 
 A data pipeline **transports, processes, and delivers data** from sources into analytic or operational systems. Designing it well means: clear requirements, the right processing model (batch vs streaming), defined layers, orchestration, error handling, monitoring, and the right technology choices.
 
+A well-designed pipeline ensures 
+data correctness, 
+scalability, 
+cost efficiency, 
+reliability, 
+and governance. 
+
+Poor design leads to duplication, performance bottlenecks, high cloud costs, and operational instability. Since data pipelines power critical business decisions, they must be architected with clear grain definition, incremental processing, failure handling, and long-term maintainability in mind.
+
 ---
 
 ### 1. Requirement Gathering
