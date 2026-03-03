@@ -16,11 +16,21 @@ After about a year, I transitioned into a technical role at Wells Fargo as a Sys
 
 When I moved to the U.S., I had the opportunity at Nike to formally transition into a Data Engineering role. There, I worked extensively with Spark, large-scale analytics pipelines, and modern data platforms.
 
-Most recently, I’ve been working at Converse as a Senior Data Engineer, supporting large-scale analytics platforms built on Databricks. One of my key initiatives was leading the migration of over 40 production pipelines from Matillion and Snowflake to Databricks. I owned the effort end-to-end — from architectural design and PySpark development to orchestration, monitoring, and performance optimization. That migration resulted in approximately a 35% runtime improvement and about a 25% reduction in infrastructure costs.
+Most recently, I’ve been working at Converse as a Senior Data Engineer.
 
-Beyond just pipeline migration, I focused heavily on standardizing Lakehouse architecture patterns. At Nike and Converse, I helped define scalable ingestion and transformation standards using Delta Lake, partitioning strategies, schema evolution best practices, and optimized resource management so that teams could build reliable pipelines without reinventing patterns each time.
+Most recently, at Converse, I own a data product called the Marketing Insights Platform. The intent of the platform is to validate marketing spend effectiveness by measuring how much we spend across channels like Meta, Twitter, Google, Bing, and other digital channels — and directly correlating that with revenue performance.
 
-I've worked extensively on high-volume Spark workloads powering supply chain, inventory, and marketing analytics. For example, I supported platforms that enabled executive dashboards and marketing insights, helping guide spend decisions with reliable and timely data. I enjoy partnering closely with analytics, product, and business stakeholders to translate evolving requirements into production-grade solutions.
+The key KPIs include spend, orders, clicks, revenue, impressions, and channel-level performance metrics. I helped build the product end-to-end — from data ingestion and modeling to enabling dashboards used by business stakeholders to guide marketing investment decisions.
+
+Beyond just delivering dashboards, I focused heavily on scalability and future-proofing the platform. Initially, the business required reporting at a channel level, but I architected the data model to support campaign-level granularity so that we could provide deeper insights as the business matured. That allowed us to move from high-level reporting to more granular attribution analysis.
+
+I also enabled Genie-based analysis capabilities so business users could explore data without writing SQL queries. That initiative is still evolving and requires additional ML tuning and training, but it’s part of our broader effort to make data more accessible and self-serve.
+
+In parallel with owning this product, I also led the engineering efforts behind migrating over 40 production pipelines from Matillion and Snowflake to Databricks. I owned the migration end-to-end — architecture design, PySpark development, orchestration, optimization — resulting in roughly a 35% performance improvement and 25% infrastructure cost reduction.
+
+At Nike and Converse more broadly,
+I've worked extensively on high-volume Spark workloads powering supply chain, inventory, and marketing analytics. 
+For example, I supported platforms that enabled executive dashboards and marketing insights, helping guide spend decisions with reliable and timely data. I enjoy partnering closely with analytics, product, and business stakeholders to translate evolving requirements into production-grade solutions.
 
 On the platform side, I've contributed to orchestration frameworks using Airflow and Brickflow, built DDL utilities as part of an internal Data Common Utils framework to auto-generate schemas across Databricks and Snowflake, and developed a Databricks PyDABs proof of concept to improve automation and developer productivity.
 
