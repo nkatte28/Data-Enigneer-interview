@@ -234,6 +234,45 @@ From that experience, I became more deliberate about designing pipelines with ma
 
 ---
 
+### 14. Idempotent pipeline design for reprocessing
+
+**What it means:** An idempotent pipeline means: if I run the same pipeline again with the same input, I should get the same final result — not duplicates, not corrupted data, not double counts. That is very important for reprocessing, retries, backfills, and late-arriving data.
+
+**Simple interview answer:**
+
+For idempotent pipeline design, I make sure the pipeline can be safely rerun for the same data window without producing duplicate records or inconsistent outputs. I usually do this by defining a clear business key, processing data in deterministic batches or partitions, and using merge/upsert logic instead of blind inserts. I also separate raw ingestion from curated layers so that if reprocessing is needed, I can reload only the impacted partitions or business dates. The goal is that retries, backfills, or late data handling produce the same final state every time.
+
+**How to design it:**
+
+1. **Use a stable business key**  
+   Every record should have something that uniquely identifies it (e.g. `order_id`, `customer_id + effective_date`, `event_id`). Without a stable key, reruns can create duplicates.
+
+2. **Keep raw data immutable**  
+   In bronze/raw layer, store the source data as-is. You always have a recovery point and can replay from raw if something breaks.
+
+3. **Use merge/upsert in curated layers**  
+   Instead of `INSERT INTO target_table SELECT * FROM source_data`, use `MERGE INTO target t USING source s ON t.id = s.id WHEN MATCHED THEN UPDATE SET ... WHEN NOT MATCHED THEN INSERT ...`. If the same data comes again, it updates or does nothing instead of duplicating.
+
+4. **Reprocess by window or partition**  
+   Rerun only the impacted range: specific date, partition, or batch id (e.g. rerun 2026-03-01 to 2026-03-03, or recompute only `region='US'`). This keeps reprocessing efficient.
+
+5. **Track event time and load time separately**  
+   Use `event_time` (when the business event happened) and `ingestion_time` (when it arrived). This helps with late-arriving data, backfills, and auditing.
+
+6. **Avoid non-deterministic logic**  
+   Avoid depending on random numbers, current timestamp in transformations, or unordered dedup logic, because reruns may produce different results.
+
+7. **Make aggregates replaceable**  
+   For summary tables, either recompute the full impacted partition and overwrite it, or use deterministic merge logic (e.g. for daily sales, recompute only that day and overwrite that partition).
+
+**Real example:**  
+Suppose daily orders come from SAP. **Bad design:** every rerun inserts all records again → duplicates in target. **Better design:** bronze stores raw extract; silver deduplicates using `order_id`; gold uses `MERGE INTO` fact table; if March 1 data was bad, rerun only March 1 → final table stays correct.
+
+**Short version for interview:**  
+I design pipelines so reruns are safe. That usually means using stable business keys, keeping raw data immutable, and using merge or overwrite-by-partition strategies instead of append-only inserts. For reprocessing, I rerun only the affected window or partition, so the final state remains correct without duplications.
+
+---
+
 ## 📝 Notes
 
 *Add more KV-specific questions and answers as you prepare.*
