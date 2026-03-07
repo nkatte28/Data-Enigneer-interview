@@ -152,6 +152,20 @@ Instead of continuing to rely on the heavy user workaround, I redesigned the ing
 
 As a result, we eliminated the dependency on the heavy SAP user, reduced the time required to extract data from HANA, and made the ingestion process much more reliable for the Databricks pipelines.
 
+**Another example (Nike supply planning):**
+
+One example was when I joined Nike to help form a new data engineering team focused on supply planning. The previous team had transitioned several products to us because they were moving on to new initiatives.
+
+Since our team was new to the domain — including engineers, managers, and product managers — we spent time understanding the existing pipelines and how the data was being used.
+
+We noticed that there were around ten different pipelines that had been built over time as new requirements came in. While they worked individually, there was a lot of redundancy. Many of the pipelines were reading from the same sources and performing very similar transformations, with only minor differences in joins or aggregations.
+
+Instead of continuing to build more pipelines on top of that structure, we saw an opportunity to improve the overall quality of the system. We analyzed the sources, target tables, key data elements, and relationships between the datasets to understand how we could design the data model more efficiently.
+
+Based on that analysis, we redesigned the data layer and consolidated the pipelines. Instead of maintaining ten separate final tables, we created four well-structured base tables that captured the core datasets. On top of those, we exposed aggregated views that could serve specific business needs either directly in the data layer or through Tableau dashboards.
+
+This significantly reduced redundancy, simplified maintenance, and made the pipelines easier to extend as new requirements came in. More importantly, it helped establish better data modeling standards for the new team as we continued building the supply planning platform.
+
 ---
 
 ### 10. Tell me about a time you disagreed with a teammate and how you resolved it.
@@ -187,6 +201,36 @@ Based on that understanding, I made the decision to change our ingestion strateg
 This significantly reduced the load on HANA, eliminated the need for the heavy user account, and improved the reliability of the pipeline.
 
 The key takeaway for me was that when information is incomplete, it's important to move forward by gathering incremental evidence, validating assumptions, and choosing the lowest-risk solution rather than simply replicating legacy behavior.
+
+---
+
+### 12. Tell me about a time you reduced toil for a team.
+
+One example was when I was working on the data platform supporting Converse analytics workloads. As more datasets were onboarded to the platform, engineers frequently had to write similar code across multiple pipelines, such as connection logic for different data sources, shared configurations, and workflow setup.
+
+This often led to duplicated code across different products and made the pipelines harder to maintain over time.
+
+To help reduce this repetitive work, our team created a shared module called Data Common Utils, which centralized commonly used utilities and platform logic. I contributed to parts of this effort for my team by adding reusable components and helping organize some of the common code so that it could be shared across multiple data products.
+
+For example, we centralized connection logic for sources like SQL Server, SAP HANA, Snowflake, and Box so engineers didn't have to reimplement those integrations in each pipeline. We also moved some shared workflow-related logic and common configuration attributes into the shared module.
+
+Since we were supporting around ten different data products, this allowed engineers to reuse the same utilities instead of duplicating code across repositories.
+
+As a result, it reduced repetitive development work, improved consistency across pipelines, and made it easier for engineers to onboard new datasets without rewriting the same boilerplate logic.
+
+---
+
+### 13. Tell me about a time you owned a mistake and what you changed.
+
+One example happened while I was working on a data pipeline supporting analytics workloads. Early in the implementation, I made a design decision to apply several transformations and aggregations in a single stage of the pipeline because it seemed simpler at the time.
+
+When the pipeline started running in production, we noticed that debugging issues became difficult because multiple transformations were happening in one step. It also made partial reprocessing harder when a downstream issue occurred.
+
+After reviewing the pipeline and discussing it with the team, I realized that the design decision I had made earlier was contributing to the operational complexity. I owned that mistake and proposed restructuring the pipeline to better align with a layered approach, separating ingestion, transformation, and aggregation stages.
+
+We refactored the pipeline so that intermediate datasets were clearly defined and could be rerun independently. This made debugging much easier and improved the reliability of the pipeline.
+
+From that experience, I became more deliberate about designing pipelines with maintainability and operational visibility in mind, not just initial simplicity.
 
 ---
 
