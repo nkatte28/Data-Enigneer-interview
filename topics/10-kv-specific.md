@@ -124,6 +124,72 @@ Finally, the emphasis on work-life balance signals a healthy engineering culture
 
 ---
 
+### 8. Tell me about a time you changed your mind after seeing new data.
+
+One example was while working on the Marketing Insights Platform that I own at Converse. The goal of the platform was to measure the effectiveness of marketing spend across channels like Meta, Google, and other digital platforms by analyzing KPIs such as spend, impressions, clicks, orders, and revenue.
+
+Initially, I believed that aggregating performance metrics at the channel level would be sufficient for the business to evaluate marketing ROI. So the first version of our data model and dashboards were designed around channel-level reporting.
+
+However, after analyzing additional campaign-level data and reviewing how marketing teams actually made decisions, it became clear that channel-level aggregation was masking important performance differences between campaigns. Some campaigns within the same channel were performing very differently, and the marketing team needed more granular insights.
+
+Based on that new data, I revisited the data model and redesigned parts of the pipeline to support campaign-level granularity instead of only channel-level reporting. This required changes to the ingestion logic, partitioning strategy, and downstream tables to maintain scalability while supporting the increased level of detail.
+
+The result was that the business gained much more actionable insights, allowing them to better allocate marketing budgets across campaigns rather than just channels. It also made the platform more future-proof as the marketing team continued to expand their campaigns.
+
+---
+
+### 9. Tell me about a time you raised the bar on quality.
+
+During our migration from legacy pipelines to Databricks, one of the data sources we relied on was SAP HANA. In the legacy system, the pipeline connected to SAP using a special "heavy user" account because jobs were frequently failing with out-of-memory errors on the HANA side.
+
+When I began migrating the pipeline to Databricks, I initially tried to follow the same approach, but we did not have access to the heavy user. This forced me to investigate the root cause instead of simply replicating the existing setup.
+
+When I analyzed the data volume, I noticed that the dataset was only a few million records, which should not normally cause memory issues. That led me to look deeper into the source system. After getting access to the HANA tables and working with the SAP SME team, I discovered that the data we were querying came from multiple nested views — essentially views built on top of other views.
+
+Because of that structure, every query triggered multiple layers of computation in HANA before returning the data, which significantly increased memory usage and execution time.
+
+Instead of continuing to rely on the heavy user workaround, I redesigned the ingestion approach. I materialized the underlying source views into intermediate tables so the expensive computations happened once rather than on every query. Since storage was not a constraint on our side but compute on HANA was, this change reduced query complexity and significantly improved the stability of the pipeline.
+
+As a result, we eliminated the dependency on the heavy SAP user, reduced the time required to extract data from HANA, and made the ingestion process much more reliable for the Databricks pipelines.
+
+---
+
+### 10. Tell me about a time you disagreed with a teammate and how you resolved it.
+
+During our migration from legacy pipelines to Databricks, we encountered a situation where several datasets were built using deeply nested views. The existing approach was to overwrite the final tables after running a series of transformations on those views.
+
+I felt that this approach would become difficult to maintain and inefficient as the platform scaled. Since we were moving to Delta Lake, I suggested using Delta Merge instead of full overwrites so we could perform incremental updates and reduce unnecessary compute.
+
+Some teammates initially preferred keeping the existing structure because it had been working reliably in the legacy system and they wanted to minimize risk during the migration.
+
+In situations like this, I try to stay calm and avoid turning the discussion into an argument. Instead, I focus on understanding the reasoning behind the other perspective and finding a practical way to evaluate both options. Rather than pushing my approach, I suggested that we test both solutions on a sample dataset.
+
+I demonstrated how using Delta Merge could reduce the amount of data processed and make the pipeline easier to manage when handling incremental updates. At the same time, we also evaluated the existing overwrite approach so we could compare the operational behavior objectively.
+
+After reviewing the results and discussing factors like reprocessing, performance, and long-term scalability, we agreed that the Delta Merge approach provided better efficiency for this pipeline. We adopted it for that workload and gradually applied it to similar pipelines where it made sense.
+
+This approach allowed us to modernize parts of the platform without disrupting the migration process, while also ensuring the team aligned around the best solution based on evidence rather than opinion.
+
+---
+
+### 11. Tell me about a time you made a decision with incomplete information.
+
+During our migration of legacy pipelines to Databricks, one of the data sources we relied on was SAP HANA. When I first started migrating the pipeline, I noticed that the legacy system used a special "heavy user" account to read data from SAP because jobs were frequently failing with out-of-memory errors on the HANA side.
+
+At that stage, I didn't have full visibility into why the heavy user was required, and initially it seemed like the simplest solution would be to request the same access for the Databricks pipelines. However, before doing that, I decided to investigate further because the dataset itself was only a few million records, which normally shouldn't cause memory issues.
+
+Since I didn't have complete information about the source system, I started gathering more context. I obtained access to the HANA source tables and worked with the SAP SME team to analyze how the data was being queried. During that process, I discovered that the source datasets were actually built on multiple nested views — essentially views built on top of other views.
+
+Because of this structure, every query triggered several layers of computation in HANA before returning results, which was causing high memory usage and slow reads.
+
+Based on that understanding, I made the decision to change our ingestion strategy. Instead of querying the final nested view directly, I materialized intermediate layers closer to the base tables so the expensive computations were executed once rather than repeatedly.
+
+This significantly reduced the load on HANA, eliminated the need for the heavy user account, and improved the reliability of the pipeline.
+
+The key takeaway for me was that when information is incomplete, it's important to move forward by gathering incremental evidence, validating assumptions, and choosing the lowest-risk solution rather than simply replicating legacy behavior.
+
+---
+
 ## 📝 Notes
 
 *Add more KV-specific questions and answers as you prepare.*
