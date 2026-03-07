@@ -60,6 +60,17 @@ conceptual data models define entities and their relationships at a high level.
 
 **Purpose**: High-level business view (WHAT, not HOW)
 
+created as part of the process of gathering requirements, 
+Describe what data exists and how entities relate, without technical details.
+
+Audience:
+Business stakeholders
+Product managers
+Architects
+
+Characteristics:
+No tables or columns
+
 **Nike Store Example**:
 
 **Business Entities**:
