@@ -63,6 +63,155 @@ flowchart LR
 
 ---
 
+### EXPLAIN: Your window into the Catalyst Optimizer
+
+EXPLAIN is your window into the Catalyst Optimizer—the "brain" of Spark. When you run a query, Spark doesn't just execute your code line-by-line; it rewrites it multiple times to find the most efficient way to get the result.
+
+The **EXPLAIN** command shows you this transformation journey through four distinct stages:
+
+| Stage | Name | What Happens |
+|-------|------|--------------|
+| 1 | Parsed Logical Plan | Spark checks your syntax. It creates a tree of what you want to do, but doesn't check if columns or tables actually exist yet (Unresolved). |
+| 2 | Analyzed Logical Plan | Spark consults the Catalog (Metastore) to resolve column names and data types. If a column is missing, the query fails here. |
+| 3 | Optimized Logical Plan | This is the most important logical step. Spark applies rules like **Predicate Pushdown** (filtering data before loading it) and **Projection Pushdown** (only reading required columns). |
+| 4 | Physical Plan | Spark decides how to do it on the cluster. It chooses between a Broadcast Join or Sort-Merge Join, and decides which files to scan. |
+
+**Physical plans are read from bottom to top.** The bottom is where data is read; the top is the final output.
+
+Spark 3.0+ introduced several modes to make these plans easier to digest:
+
+- **`df.explain(mode="simple")`**: Shows only the Physical Plan. Best for a quick check.
+- **`df.explain(mode="cost")`**: If `ANALYZE TABLE` has been run, this mode shows the estimated size of data at each step (e.g. `Statistics(sizeInBytes=10.0 MiB)`).
+- **`df.explain(mode="formatted")`**: **(Recommended)** This is the cleanest view. It provides a simplified tree at the top and detailed "Node" information at the bottom, making it much easier to spot expensive joins or scans.
+
+**Using EXPLAIN to diagnose slow queries:**
+
+- **Check the Join Type:** If you see `SortMergeJoin` where you expected a `BroadcastHashJoin`, your table statistics might be missing or out of date (run `ANALYZE TABLE`).
+- **Look for Cartesian Products:** If you see `BroadcastNestedLoopJoin` or `CartesianProduct`, your query might be missing a join condition, which can crash your cluster.
+- **Validate Filter Pushdown:** Ensure that your `WHERE` clauses appear as `PushedFilters` in the `FileScan` stage. If they appear later (as a separate `Filter` node), Spark is reading too much data into memory before filtering it.
+
+The Catalyst Optimizer doesn't care whether you are querying an existing table or transforming "in-flight" data before a write. **It is active any time you use the Spark DataFrame API, Dataset API, or Spark SQL.**
+
+#### When does Catalyst run? (Lazy evaluation and the write phase)
+
+**1. The "Lazy Evaluation" factor**
+
+This is the most important concept: **Spark is lazy.** When you write code like `df.join(df2).filter(...)`, Spark doesn't actually do anything yet. It just builds a Logical Plan.
+
+The Catalyst Optimizer takes that Logical Plan and rearranges it **before the first byte of data is ever moved.** This happens before the write begins.
+
+**2. Catalyst during transformations and joins**
+
+Even if you haven't saved your data to a table yet, Catalyst is working behind the scenes to:
+
+- **Combine filters:** If you have `.filter(a > 10).filter(b < 5)`, Catalyst merges them into a single operation.
+- **Pushdown predicates:** If you are reading from a source (e.g. Parquet or a database) and then filtering, Catalyst tells the reader to only grab the rows that match the filter.
+- **Column pruning:** If your final `.write()` only needs 3 out of 50 columns, Catalyst ensures the other 47 columns are never even processed in the middle stages.
+
+**3. Catalyst during the write phase**
+
+When you finally call `.write.save()`, that is the **Action** that triggers the optimizer to finalize the Physical Plan.
+
+- It looks at your joins and decides: "Should I use a Broadcast Join or a Sort-Merge Join for this write?"
+- It looks at your transformations and decides the best way to distribute the data across the executors to avoid skew before hitting the disk.
+
+#### RBO vs CBO: How Catalyst uses both
+
+Catalyst handles **RBO (Rule-Based Optimization) first**, and then layers **CBO (Cost-Based Optimization)** on top of it.
+
+- **Rule-Based Optimization** uses a set of predefined "best practice" rules to rewrite your query plan. These rules are applied regardless of how much data you actually have.
+- RBO is great, but it's "blind" to the actual data. It doesn't know if a table has 10 rows or 10 billion rows. That's where **CBO (Cost-Based Optimization)** comes in.
+- Once RBO has "cleaned up" the logic, Catalyst looks at the **statistics** (from `ANALYZE TABLE`) to make expensive decisions:
+  - **Join selection:** Should I use a Broadcast Hash Join (fast, for small tables) or a Sort-Merge Join (slower, for big tables)?
+  - **Join reordering:** If you are joining 3 tables (A, B, C), which two should I join first to make the intermediate result as small as possible?
+
+| Step | Type | Action |
+|------|------|--------|
+| Analysis | RBO | Checks if the table and columns exist in the catalog. |
+| Logical Optimization | RBO | Applies "common sense" rules (pushdowns, pruning). |
+| Physical Planning | CBO | Uses table statistics to choose the cheapest physical path. |
+
+**RBO can't see skew.** RBO just says, "I will join these two tables." It is the **CBO** (and modern features like **Adaptive Query Execution / AQE**) that notice skew. If AQE sees that one partition is 10× larger than the others during the shuffle, it will dynamically split that partition into smaller pieces to balance the load across the cluster.
+
+- **RBO:** The "smart rules" that simplify the logic of your code.
+- **CBO:** The "data math" that chooses the most efficient physical execution based on table size and cardinality.
+
+---
+
+### DESCRIBE: The Metadata Inspector
+
+Use **DESCRIBE** when you want to see the "blueprints" of your table. It shows you the schema, column types, and physical storage details.
+
+- **`DESCRIBE table_name`**: Shows a basic list of columns and their data types (String, Int, etc.).
+- **`DESCRIBE EXTENDED table_name`**: This is the one you want for troubleshooting. It reveals:
+  - **Location:** Where the data lives (e.g. S3, ADLS).
+  - **Partitioning/Clustering:** Which columns are used for Liquid Clustering (Delta).
+  - **Table properties:** e.g. whether Predictive Optimization is turned on.
+- **`DESCRIBE HISTORY table_name`**: (Delta Lake) Shows the Delta log — every version, every `OPTIMIZE` run, and who changed what.
+
+**Practical use:**
+
+- Use **DESCRIBE EXTENDED** to confirm your table is using Liquid Clustering on the right keys.
+- Use **DESCRIBE HISTORY** to verify that Predictive Optimization is actually running `OPTIMIZE` jobs.
+- Use **EXPLAIN FORMATTED** on your query to confirm that Spark is skipping data based on those clustering keys.
+
+---
+
+### ANALYZE TABLE: Statistics for the CBO
+
+**ANALYZE TABLE** is like a full-body exam: it computes **table statistics**, which the Cost-Based Optimizer (CBO) uses to make your queries fast.
+
+#### 1. What does it actually do?
+
+When you run `ANALYZE TABLE`, Spark physically scans your data to calculate:
+
+- **Total number of rows:** How many records exist.
+- **Column statistics:** For every column (or specified columns), it finds Min, Max, null count, and distinct values.
+- **Table size:** Total size in bytes on disk.
+
+#### 2. Why is it so important? (The join problem)
+
+Spark uses these statistics to choose the **execution plan**. The most critical decision is **join type**:
+
+- **Broadcast Join:** If `ANALYZE` tells Spark that table A is tiny (e.g. 10 MB), Spark will broadcast that table to every worker. This is very fast.
+- **Sort-Merge Join:** If Spark *thinks* table A is small (because you didn’t run `ANALYZE`) but it’s actually 100 GB, and it tries to broadcast it, your cluster can hit **Out of Memory** errors.
+
+#### 3. The cost of being informed
+
+Unlike `DESCRIBE`, **ANALYZE is a heavy, distributed job**:
+
+- **I/O intensive:** It has to read (or sample) files to count rows and compute min/max.
+- **Compute intensive:** It uses the cluster’s CPUs.
+- **Time-consuming:** On a multi-terabyte table, `ANALYZE` can take minutes or hours depending on cluster size.
+
+#### 4. How to run it efficiently
+
+You don’t always need to analyze the entire table or every column:
+
+| Command | What it does | Cost |
+|--------|----------------|------|
+| `ANALYZE TABLE t COMPUTE STATISTICS;` | Only row count and total size. | Medium |
+| `ANALYZE TABLE t COMPUTE STATISTICS FOR ALL COLUMNS;` | Scans every value in every column. | High |
+| `ANALYZE TABLE t COMPUTE STATISTICS FOR COLUMNS col1, col2;` | Only specified columns (best practice). | Optimized |
+
+**Pro tip:** Only analyze columns that appear in **JOINs** or **WHERE** clauses. Analyzing a long free-text column is usually a waste of compute.
+
+#### 5. Do you need it with Delta Lake / Databricks?
+
+Delta Lake automatically maintains some stats:
+
+- On every write to a Delta table, it stores **min/max** and **null counts** for the first 32 columns in the transaction log.
+- It does **not** automatically compute **distinct values (cardinality)**.
+- For complex joins, you still need to run **ANALYZE** periodically to give the optimizer cardinality and other stats.
+
+#### Summary checklist
+
+- **Run it after:** A large data load or a major delete/update.
+- **Run it before:** Complex reports or heavy multi-table joins.
+- **Avoid:** Running it on every single ingestion (too expensive). Use Predictive Optimization when available; it can sometimes collect or refresh stats for you.
+
+---
+
 ### Differences between Spark 2.0, 3.0, and 4.0 (optimizations)
 
 | Area | Spark 2.x | Spark 3.x | Spark 4.x (expected) |
