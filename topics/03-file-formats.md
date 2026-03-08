@@ -341,11 +341,15 @@ So: **predicate pushdown** is the *mechanism* (push predicate to storage); **dat
 from pyspark.sql.functions import col, explode_outer
 from pyspark.sql.types import StructType, ArrayType
 
+
+```
+from pyspark.sql.functions import col, explode_outer
+from pyspark.sql.types import StructType, ArrayType
+
 def flatten_json(df):
     while True:
         complex_col = None
         complex_type = None
-
         # find the first nested column
         for field in df.schema.fields:
             if isinstance(field.dataType, StructType):
@@ -356,11 +360,9 @@ def flatten_json(df):
                 complex_col = field.name
                 complex_type = "array"
                 break
-
         # stop when no nested columns are left
         if complex_col is None:
             break
-
         # flatten struct
         if complex_type == "struct":
             expanded_cols = [
@@ -368,13 +370,11 @@ def flatten_json(df):
                 for nested_col in df.schema[complex_col].dataType.fields
             ]
             df = df.select("*", *expanded_cols).drop(complex_col)
-
         # explode array
         elif complex_type == "array":
             df = df.withColumn(complex_col, explode_outer(col(complex_col)))
-
     return df
-    
+```
 **Example Use Case**: API log storage, NoSQL database exports
 
 ---
