@@ -5407,6 +5407,65 @@ spark.sql("ALTER TABLE sales_v2 RENAME TO sales")
 
 ---
 
+For Unity Catalog external tables on Databricks + S3, you typically need these pieces:
+
+1. The data in S3
+A bucket/path that already exists.
+Databricks recommends avoiding concurrent writes to the same S3 location from multiple metastores because that can cause consistency issues.
+
+2. An AWS IAM role
+This role needs the right S3 permissions for that bucket/path.
+It should be in the same AWS account as the S3 bucket for the standard setup Databricks documents.
+
+3. A Unity Catalog storage credential
+This is the Databricks object that stores the cloud access configuration for that IAM role.
+
+4. A Unity Catalog external location
+This combines:
+the S3 path
+the storage credential
+Databricks uses the external location to govern access to that cloud path.
+
+5. Permissions
+To create an external table, you need:
+
+CREATE EXTERNAL TABLE on the external location
+USE CATALOG on the parent catalog
+USE SCHEMA on the parent schema
+CREATE TABLE on the parent schema.
+
+If you are creating the storage credential / external location yourself, there are extra setup privileges:
+
+CREATE STORAGE CREDENTIAL on the metastore
+CREATE EXTERNAL LOCATION on the metastore and on the storage credential.
+
+6. The table definition
+
+Then you create the table with a LOCATION under that external location path. Unity Catalog external tables use a LOCATION clause, and that path should be covered by an external location you can use.
+
+A simple mental model:
+
+IAM role → lets Databricks reach S3
+Storage credential → registers that access in Unity Catalog
+External location → ties the S3 path to that credential
+External table → points to the actual data path inside that location
+
+Example flow:
+
+CREATE STORAGE CREDENTIAL my_cred
+WITH IAM ROLE 'arn:aws:iam::<account-id>:role/<role-name>';
+
+CREATE EXTERNAL LOCATION my_ext_loc
+URL 's3://my-bucket/path/'
+WITH (STORAGE CREDENTIAL my_cred);
+
+CREATE TABLE my_catalog.my_schema.my_table
+USING DELTA
+LOCATION 's3://my-bucket/path/my_table/';
+
+One important detail: for Unity Catalog external tables, Databricks says the LOCATION must be in an external location registered in Unity Catalog.
+
+
 ## 💡 Complete End-to-End Example
 
 **What We're Building**: Complete ETL pipeline from raw data to analytics.
@@ -5513,5 +5572,7 @@ Practice building:
 - **Spark Documentation**: https://spark.apache.org/docs/latest/
 
 ---
+
+
 
 **Keep Building! 🚀**
