@@ -350,7 +350,8 @@ def flatten_json(df):
     while True:
         complex_col = None
         complex_type = None
-        # find the first nested column
+
+        # find first complex column
         for field in df.schema.fields:
             if isinstance(field.dataType, StructType):
                 complex_col = field.name
@@ -360,19 +361,26 @@ def flatten_json(df):
                 complex_col = field.name
                 complex_type = "array"
                 break
-        # stop when no nested columns are left
+
+        # stop if no complex column left
         if complex_col is None:
             break
+
         # flatten struct
         if complex_type == "struct":
-            expanded_cols = [
-                col(f"{complex_col}.{nested_col.name}").alias(f"{complex_col}_{nested_col.name}")
-                for nested_col in df.schema[complex_col].dataType.fields
-            ]
+            expanded_cols = []
+
+            for nested_col in df.schema[complex_col].dataType.fields:
+                expanded_cols.append(
+                    col(f"{complex_col}.{nested_col.name}").alias(f"{complex_col}_{nested_col.name}")
+                )
+
             df = df.select("*", *expanded_cols).drop(complex_col)
+
         # explode array
         elif complex_type == "array":
             df = df.withColumn(complex_col, explode_outer(col(complex_col)))
+
     return df
 ```
 **Example Use Case**: API log storage, NoSQL database exports
