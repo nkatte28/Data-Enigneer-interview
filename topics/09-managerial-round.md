@@ -40,6 +40,22 @@ Managerial rounds assess your ability to lead data engineering teams, influence 
 
 ## 💡 Interview Questions & Answers
 
+**Quick index:** click a question to jump to the answer.
+
+| # | Question |
+|---|----------|
+| 1 | [How do you handle production issues as a data engineer/developer?](#1-how-do-you-handle-production-issues-as-a-data-engineerdeveloper) |
+| 2 | [How did you handle deployment issues?](#2-how-did-you-handle-deployment-issues) |
+| 3 | [How do you document your data engineering projects and processes for future reference and knowledge sharing?](#3-how-do-you-document-your-data-engineering-projects-and-processes-for-future-reference-and-knowledge-sharing) |
+| 4 | [Can you describe a situation where you had to troubleshoot and resolve a data-related issue quickly and effectively?](#4-can-you-describe-a-situation-where-you-had-to-troubleshoot-and-resolve-a-data-related-issue-quickly-and-effectively) |
+| 5 | [Tell me about a time you had to scale your team. What challenges did you face?](#5-tell-me-about-a-time-you-had-to-scale-your-team-what-challenges-did-you-face) |
+| 6 | [How do you handle conflict between team members?](#6-how-do-you-handle-conflict-between-team-members) |
+| 7 | [How do you prioritize when everything seems urgent?](#7-how-do-you-prioritize-when-everything-seems-urgent) |
+| 8 | [Describe your approach to giving difficult feedback](#8-describe-your-approach-to-giving-difficult-feedback) |
+| 9 | [How do you measure success as a data engineering manager?](#9-how-do-you-measure-success-as-a-data-engineering-manager) |
+
+---
+
 ### 1. How do you handle production issues as a data engineer/developer?
 
 **Approach**: A proactive approach to identify, troubleshoot, and resolve issues efficiently. Knowing the process beforehand greatly increases the effectiveness of recovery efforts.

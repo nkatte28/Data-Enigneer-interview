@@ -50,6 +50,27 @@ By the end of this topic, you should be able to:
 
 ## 💡 Interview Questions & Answers
 
+**Quick index:** click a question to jump to the answer.
+
+| # | Question |
+|---|----------|
+| 1 | [Why should we hire you?](#1-why-should-we-hire-you) |
+| 2 | [What are your top three expectations and priorities in the next role?](#2-what-are-your-top-three-expectations-and-priorities-in-the-next-role) |
+| 3 | [How are you upskilling in AI?](#3-how-are-you-upskilling-in-ai) |
+| 4 | [What did you learn from building those AI apps?](#4-what-did-you-learn-from-building-those-ai-apps) |
+| 5 | [What is your 3-year roadmap?](#5-what-is-your-3-year-roadmap) |
+| 6 | [What is your biggest weakness?](#6-what-is-your-biggest-weakness) |
+| 7 | [Why Rearc specifically?](#7-why-rearc-specifically) |
+| 8 | [Tell me about a time you changed your mind after seeing new data](#8-tell-me-about-a-time-you-changed-your-mind-after-seeing-new-data) |
+| 9 | [Tell me about a time you raised the bar on quality](#9-tell-me-about-a-time-you-raised-the-bar-on-quality) |
+| 10 | [Tell me about a time you disagreed with a teammate and how you resolved it](#10-tell-me-about-a-time-you-disagreed-with-a-teammate-and-how-you-resolved-it) |
+| 11 | [Tell me about a time you made a decision with incomplete information](#11-tell-me-about-a-time-you-made-a-decision-with-incomplete-information) |
+| 12 | [Tell me about a time you reduced toil for a team](#12-tell-me-about-a-time-you-reduced-toil-for-a-team) |
+| 13 | [Tell me about a time you owned a mistake and what you changed](#13-tell-me-about-a-time-you-owned-a-mistake-and-what-you-changed) |
+| 14 | [Idempotent pipeline design for reprocessing](#14-idempotent-pipeline-design-for-reprocessing) |
+
+---
+
 ### 1. Why should we hire you?
 
 You should hire me because I don't just build pipelines — I build reliable data platforms that businesses can depend on.
