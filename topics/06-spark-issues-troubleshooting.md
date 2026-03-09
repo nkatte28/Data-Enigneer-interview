@@ -17,8 +17,73 @@ By the end of this topic, you should be able to:
 
 ---
 
+## 📑 Table of Contents
+
+**Part 1: Spark Optimizations**
+- [Spark default optimization methods (overview)](#spark-default-optimization-methods-overview)
+  - [Optimization flow (what runs first?)](#optimization-flow-what-runs-first)
+  - [Pushdown & pruning: where they act](#pushdown--pruning-where-they-act)
+- [EXPLAIN: Your window into the Catalyst Optimizer](#explain-your-window-into-the-catalyst-optimizer)
+  - [When does Catalyst run? (Lazy evaluation and the write phase)](#when-does-catalyst-run-lazy-evaluation-and-the-write-phase)
+  - [RBO vs CBO: How Catalyst uses both](#rbo-vs-cbo-how-catalyst-uses-both)
+- [DESCRIBE: The Metadata Inspector](#describe-the-metadata-inspector)
+- [ANALYZE TABLE: Statistics for the CBO](#analyze-table-statistics-for-the-cbo)
+  - [What does it actually do?](#1-what-does-it-actually-do)
+  - [Why is it so important? (The join problem)](#2-why-is-it-so-important-the-join-problem)
+  - [How to run it efficiently](#4-how-to-run-it-efficiently)
+  - [Do you need it with Delta Lake / Databricks?](#5-do-you-need-it-with-delta-lake--databricks)
+- [Differences between Spark 2.0, 3.0, and 4.0](#differences-between-spark-20-30-and-40-optimizations)
+- [RBO – Rule-Based Optimizer](#rbo--rule-based-optimizer-how-catalyst-handles-it)
+  - [Predicate pushdown](#predicate-pushdown)
+  - [Projection pushdown](#projection-pushdown)
+  - [Constant folding](#constant-folding)
+  - [Column pruning](#column-pruning)
+  - [Partition pruning](#partition-pruning)
+- [Join reordering (RBO/CBO)](#join-reordering-rbocbo)
+- [Storage and statistics (for CBO)](#storage-and-statistics-for-cbo)
+- [CBO – Cost-Based Optimizer](#cbo--cost-based-optimizer-how-it-works)
+- [Tungsten Engine optimizations](#tungsten-engine-optimizations)
+- [AQE (Adaptive Query Execution)](#aqe-adaptive-query-execution)
+- [Vectorized execution](#vectorized-execution)
+- [How these work on tables vs DataFrames](#how-these-work-on-tables-vs-dataframes)
+- [What to do as an engineer so inbuilt optimizations work better](#what-to-do-as-an-engineer-so-inbuilt-optimizations-work-better)
+- [Optimizations you can add beyond the inbuilt ones](#optimizations-you-can-add-beyond-the-inbuilt-ones)
+- [Handling Large Amount of Data in Spark (Senior Playbook)](#handling-large-amount-of-data-in-spark-senior-playbook)
+  - [1) Start with a sizing mindset](#1-start-with-a-sizing-mindset-dont-guess)
+  - [2) Read less data](#2-read-less-data-most-underrated)
+  - [3) Fix file layout](#3-fix-file-layout-small-files-kill-large-data-jobs)
+  - [4) Control partitioning and parallelism](#4-control-partitioning-and-parallelism)
+  - [5) Make joins safe](#5-make-joins-safe-large-data-dies-on-joins)
+  - [6) Manage shuffle](#6-manage-shuffle-most-oom-comes-from-shuffle)
+  - [7) Cache only when it's truly beneficial](#7-cache-only-when-its-truly-beneficial)
+  - [8) Build incrementally](#8-build-incrementally-dont-reprocess-everything)
+  - [9) Choose the right cluster strategy](#9-choose-the-right-cluster-strategy)
+  - [10) Debug using Spark UI](#10-debug-using-spark-ui-non-negotiable)
+  - [Senior-level "how I handle large data" answer](#senior-level-how-i-handle-large-data-answer-interview-ready)
+
+**Part 2: Common Spark Issues and Solutions**
+- [Most Common Causes of OOM](#most-common-causes-of-oom-outofmemory-errors)
+- [Issue 1: Executor OutOfMemory (OOM)](#issue-1-executor-outofmemory-oom)
+- [Issue 2: Driver OutOfMemory (OOM)](#issue-2-driver-outofmemory-oom)
+- [Issue 3: GC Overhead Limit Exceeded](#issue-3-gc-overhead-limit-exceeded)
+- [Issue 4: YARN Memory Overhead](#issue-4-yarn-memory-overhead)
+- [Issue 5: Small Files Problem](#issue-5-small-files-problem)
+- [Issue 6: Data Skewness in Spark](#issue-6-data-skewness-in-spark)
+- [Issue 7: FileAlreadyExistsException](#issue-7-filealreadyexistsexception)
+- [Issue 8: FileNotFoundException](#issue-8-filenotfoundexception)
+- [Issue 9: Handling Updates and Deletes in Spark](#issue-9-handling-updates-and-deletes-in-spark)
+- [Issue 10: Shuffle Failures](#issue-10-shuffle-failures)
+- [Issue 11: Serialization Errors](#issue-11-serialization-errors)
+- [Issue 12: Broadcast Join Threshold Issues](#issue-12-broadcast-join-threshold-issues)
+- [Issue 13: Task Failures and Retries](#issue-13-task-failures-and-retries)
+- [Issue 14: Slow Query Performance](#issue-14-slow-query-performance)
+- [Quick Reference: Common Spark Configurations](#quick-reference-common-spark-configurations)
+
+---
+
 ## 📖 Part 1: Spark Optimizations
 
+<a id="spark-default-optimization-methods-overview"></a>
 ### Spark default optimization methods (overview)
 
 Spark applies optimizations in several layers:
@@ -30,6 +95,7 @@ Spark applies optimizations in several layers:
 5. **Tungsten** – memory management and code generation.
 6. **Vectorized execution** – batch processing in columnar format where supported (e.g. Parquet).
 
+<a id="optimization-flow-what-runs-first"></a>
 #### Optimization flow (what runs first?)
 
 ```mermaid
@@ -48,6 +114,7 @@ flowchart TB
   J --> L[Vectorized scan when supported]
 ```
 
+<a id="pushdown--pruning-where-they-act"></a>
 #### Pushdown & pruning: where they act
 
 ```mermaid
@@ -57,12 +124,13 @@ flowchart LR
   RBO --> DS[Data source scan]
   DS -->|Predicate pushdown| DS
   DS -->|Projection pushdown| DS
-  DS -->|Partition pruning (if partitioned)| DS
+  DS -->|Partition pruning when partitioned| DS
   DS --> EX[Executors process fewer rows/cols]
 ```
 
 ---
 
+<a id="explain-your-window-into-the-catalyst-optimizer"></a>
 ### EXPLAIN: Your window into the Catalyst Optimizer
 
 EXPLAIN is your window into the Catalyst Optimizer—the "brain" of Spark. When you run a query, Spark doesn't just execute your code line-by-line; it rewrites it multiple times to find the most efficient way to get the result.
@@ -92,6 +160,7 @@ Spark 3.0+ introduced several modes to make these plans easier to digest:
 
 The Catalyst Optimizer doesn't care whether you are querying an existing table or transforming "in-flight" data before a write. **It is active any time you use the Spark DataFrame API, Dataset API, or Spark SQL.**
 
+<a id="when-does-catalyst-run-lazy-evaluation-and-the-write-phase"></a>
 #### When does Catalyst run? (Lazy evaluation and the write phase)
 
 **1. The "Lazy Evaluation" factor**
@@ -115,6 +184,7 @@ When you finally call `.write.save()`, that is the **Action** that triggers the 
 - It looks at your joins and decides: "Should I use a Broadcast Join or a Sort-Merge Join for this write?"
 - It looks at your transformations and decides the best way to distribute the data across the executors to avoid skew before hitting the disk.
 
+<a id="rbo-vs-cbo-how-catalyst-uses-both"></a>
 #### RBO vs CBO: How Catalyst uses both
 
 Catalyst handles **RBO (Rule-Based Optimization) first**, and then layers **CBO (Cost-Based Optimization)** on top of it.
@@ -138,6 +208,7 @@ Catalyst handles **RBO (Rule-Based Optimization) first**, and then layers **CBO 
 
 ---
 
+<a id="describe-the-metadata-inspector"></a>
 ### DESCRIBE: The Metadata Inspector
 
 Use **DESCRIBE** when you want to see the "blueprints" of your table. It shows you the schema, column types, and physical storage details.
@@ -157,10 +228,12 @@ Use **DESCRIBE** when you want to see the "blueprints" of your table. It shows y
 
 ---
 
+<a id="analyze-table-statistics-for-the-cbo"></a>
 ### ANALYZE TABLE: Statistics for the CBO
 
 **ANALYZE TABLE** is like a full-body exam: it computes **table statistics**, which the Cost-Based Optimizer (CBO) uses to make your queries fast.
 
+<a id="1-what-does-it-actually-do"></a>
 #### 1. What does it actually do?
 
 When you run `ANALYZE TABLE`, Spark physically scans your data to calculate:
@@ -169,6 +242,7 @@ When you run `ANALYZE TABLE`, Spark physically scans your data to calculate:
 - **Column statistics:** For every column (or specified columns), it finds Min, Max, null count, and distinct values.
 - **Table size:** Total size in bytes on disk.
 
+<a id="2-why-is-it-so-important-the-join-problem"></a>
 #### 2. Why is it so important? (The join problem)
 
 Spark uses these statistics to choose the **execution plan**. The most critical decision is **join type**:
@@ -184,6 +258,7 @@ Unlike `DESCRIBE`, **ANALYZE is a heavy, distributed job**:
 - **Compute intensive:** It uses the cluster’s CPUs.
 - **Time-consuming:** On a multi-terabyte table, `ANALYZE` can take minutes or hours depending on cluster size.
 
+<a id="4-how-to-run-it-efficiently"></a>
 #### 4. How to run it efficiently
 
 You don’t always need to analyze the entire table or every column:
@@ -196,6 +271,7 @@ You don’t always need to analyze the entire table or every column:
 
 **Pro tip:** Only analyze columns that appear in **JOINs** or **WHERE** clauses. Analyzing a long free-text column is usually a waste of compute.
 
+<a id="5-do-you-need-it-with-delta-lake--databricks"></a>
 #### 5. Do you need it with Delta Lake / Databricks?
 
 Delta Lake automatically maintains some stats:
@@ -212,6 +288,7 @@ Delta Lake automatically maintains some stats:
 
 ---
 
+<a id="differences-between-spark-20-30-and-40-optimizations"></a>
 ### Differences between Spark 2.0, 3.0, and 4.0 (optimizations)
 
 | Area | Spark 2.x | Spark 3.x | Spark 4.x (expected) |
@@ -225,6 +302,7 @@ Delta Lake automatically maintains some stats:
 
 ---
 
+<a id="rbo--rule-based-optimizer-how-catalyst-handles-it"></a>
 ### RBO – Rule-Based Optimizer (how Catalyst handles it)
 
 RBO applies **predefined transformation rules** to the logical (and physical) plan **without using data statistics**. Catalyst runs these rules during query planning.
@@ -241,6 +319,7 @@ RBO applies **predefined transformation rules** to the logical (and physical) pl
 
 ---
 
+<a id="predicate-pushdown"></a>
 #### Predicate pushdown
 
 - **What it does:** Pushes filter conditions down to the **data source** so the storage layer returns only matching rows instead of reading everything and filtering in Spark.
@@ -250,6 +329,7 @@ RBO applies **predefined transformation rules** to the logical (and physical) pl
 
 ---
 
+<a id="projection-pushdown"></a>
 #### Projection pushdown
 
 - **What it does:** Pushes **column selection** down to the data source so only **required columns** are read from storage.
@@ -258,6 +338,7 @@ RBO applies **predefined transformation rules** to the logical (and physical) pl
 
 ---
 
+<a id="constant-folding"></a>
 #### Constant folding
 
 - **What it does:** Spark evaluates **constant expressions once at query planning time** and replaces them with the result, so they are not recomputed for every row.
@@ -266,6 +347,7 @@ RBO applies **predefined transformation rules** to the logical (and physical) pl
 
 ---
 
+<a id="column-pruning"></a>
 #### Column pruning
 
 - **What it does:** Removes **unnecessary columns** from the logical and physical plan so downstream operators only see columns that are actually used.
@@ -280,6 +362,7 @@ RBO applies **predefined transformation rules** to the logical (and physical) pl
 
 ---
 
+<a id="partition-pruning"></a>
 #### Partition pruning
 
 - **What it does:** Skips **entire partitions**; only **required partitions** are scanned instead of reading all data.
@@ -288,6 +371,7 @@ RBO applies **predefined transformation rules** to the logical (and physical) pl
 
 ---
 
+<a id="join-reordering-rbocbo"></a>
 ### Join reordering (RBO/CBO)
 
 - **What it does:** Spark changes the **order of joins** to reduce intermediate data size and improve performance.
@@ -298,6 +382,7 @@ RBO applies **predefined transformation rules** to the logical (and physical) pl
 
 ---
 
+<a id="storage-and-statistics-for-cbo"></a>
 ### Storage and statistics (for CBO)
 
 CBO needs **statistics** to make good decisions:
@@ -309,6 +394,7 @@ CBO needs **statistics** to make good decisions:
 
 ---
 
+<a id="cbo--cost-based-optimizer-how-it-works"></a>
 ### CBO – Cost-Based Optimizer (how it works)
 
 - **What it does:** Uses **table and column statistics** to estimate query cost and choose **optimal join order and execution strategies**, reducing shuffle and intermediate data size.
@@ -323,6 +409,7 @@ CBO needs **statistics** to make good decisions:
 
 ---
 
+<a id="tungsten-engine-optimizations"></a>
 ### Tungsten Engine optimizations
 
 Tungsten improves **memory and CPU efficiency**:
@@ -335,6 +422,7 @@ These apply under the hood to both DataFrame and SQL execution.
 
 ---
 
+<a id="aqe-adaptive-query-execution"></a>
 ### AQE (Adaptive Query Execution)
 
 - **What it is:** Runtime re-optimization based on **actual** data sizes and shuffle statistics (Spark 3.x, on by default in many distributions).
@@ -343,6 +431,7 @@ These apply under the hood to both DataFrame and SQL execution.
 
 ---
 
+<a id="vectorized-execution"></a>
 ### Vectorized execution
 
 - **What it is:** Processing data in **columnar batches** instead of row-by-row, especially for Parquet (and similar) reads.
@@ -351,6 +440,7 @@ These apply under the hood to both DataFrame and SQL execution.
 
 ---
 
+<a id="how-these-work-on-tables-vs-dataframes"></a>
 ### How these work on tables vs DataFrames
 
 - **Tables (catalog):** When you query a table (e.g. `spark.sql("SELECT ... FROM my_table")` or `spark.table("my_table")`), Catalyst, RBO, CBO, AQE, Tungsten, and vectorized execution all apply during planning and execution. Statistics from `ANALYZE TABLE` are used by CBO for catalog tables.
@@ -358,6 +448,7 @@ These apply under the hood to both DataFrame and SQL execution.
 
 ---
 
+<a id="what-to-do-as-an-engineer-so-inbuilt-optimizations-work-better"></a>
 ### What to do as an engineer so inbuilt optimizations work better
 
 1. **For RBO to work well:**
@@ -375,6 +466,7 @@ These apply under the hood to both DataFrame and SQL execution.
 
 ---
 
+<a id="optimizations-you-can-add-beyond-the-inbuilt-ones"></a>
 ### Optimizations you can add beyond the inbuilt ones
 
 These are **explicit** choices you make in code or config; they complement the automatic optimizations above.
@@ -405,10 +497,12 @@ These are **explicit** choices you make in code or config; they complement the a
 
 ---
 
+<a id="handling-large-amount-of-data-in-spark-senior-playbook"></a>
 ### Handling Large Amount of Data in Spark (Senior Playbook)
 
 This section summarizes a **sizing-first, data-minimizing** approach to large data in Spark—useful for interviews and production.
 
+<a id="1-start-with-a-sizing-mindset-dont-guess"></a>
 #### 1) Start with a sizing mindset (don't guess)
 
 Large data handling is mostly about:
@@ -422,6 +516,7 @@ Large data handling is mostly about:
 
 ---
 
+<a id="2-read-less-data-most-underrated"></a>
 #### 2) Read less data (most underrated)
 
 **A) Filter early + project early**
@@ -437,6 +532,7 @@ Large data handling is mostly about:
 
 ---
 
+<a id="3-fix-file-layout-small-files-kill-large-data-jobs"></a>
 #### 3) Fix file layout (small files kill "large data" jobs)
 
 **A) Avoid too many small files**
@@ -452,6 +548,7 @@ Large data handling is mostly about:
 
 ---
 
+<a id="4-control-partitioning-and-parallelism"></a>
 #### 4) Control partitioning and parallelism
 
 **A) Don't blindly use `repartition(2000)`**
@@ -467,6 +564,7 @@ Large data handling is mostly about:
 
 ---
 
+<a id="5-make-joins-safe-large-data-dies-on-joins"></a>
 #### 5) Make joins safe (large data dies on joins)
 
 **A) Broadcast join when one side is small**
@@ -486,6 +584,7 @@ Large data handling is mostly about:
 
 ---
 
+<a id="6-manage-shuffle-most-oom-comes-from-shuffle"></a>
 #### 6) Manage shuffle (most OOM comes from shuffle)
 
 **Triggers:** join, `groupBy`, `distinct`, `orderBy`, windows.
@@ -498,6 +597,7 @@ Large data handling is mostly about:
 
 ---
 
+<a id="7-cache-only-when-its-truly-beneficial"></a>
 #### 7) Cache only when it's truly beneficial
 
 Caching large datasets without reuse is a classic failure pattern.
@@ -514,6 +614,7 @@ Caching large datasets without reuse is a classic failure pattern.
 
 ---
 
+<a id="8-build-incrementally-dont-reprocess-everything"></a>
 #### 8) Build incrementally (don't reprocess everything)
 
 For "large" pipelines, you almost always want:
@@ -524,6 +625,7 @@ For "large" pipelines, you almost always want:
 
 ---
 
+<a id="9-choose-the-right-cluster-strategy"></a>
 #### 9) Choose the right cluster strategy
 
 **A) Horizontal scaling for throughput**
@@ -544,6 +646,7 @@ Also: tune cores vs memory—too many cores per executor → too many concurrent
 
 ---
 
+<a id="10-debug-using-spark-ui-non-negotiable"></a>
 #### 10) Debug using Spark UI (non-negotiable)
 
 For large data you **must** use Spark UI to check:
@@ -556,6 +659,7 @@ For large data you **must** use Spark UI to check:
 
 ---
 
+<a id="senior-level-how-i-handle-large-data-answer-interview-ready"></a>
 #### Senior-level "how I handle large data" answer (interview-ready)
 
 > **"To handle large datasets in Spark, I focus on minimizing data movement and keeping per-task work within healthy bounds. I reduce I/O by filtering and projecting early, enforce a storage layout that supports pruning and avoids small files, and choose partition counts based on target bytes per task. For joins and aggregations, I control shuffle by using broadcast joins when feasible, addressing skew with AQE or salting, and monitoring spill metrics. I cache only reusable intermediates and always unpersist. Finally, I tune cluster resources based on whether the bottleneck is parallelism or per-task memory, validating changes via Spark UI."**
@@ -564,27 +668,7 @@ For large data you **must** use Spark UI to check:
 
 ## 📖 Part 2: Common Spark Issues and Solutions
 
-**Quick index:** click an issue to jump to the solution.
-
-| # | Issue |
-|---|-------|
-| 1 | [Executor OutOfMemory (OOM)](#issue-1-executor-outofmemory-oom) |
-| 2 | [Driver OutOfMemory (OOM)](#issue-2-driver-outofmemory-oom) |
-| 3 | [GC Overhead Limit Exceeded](#issue-3-gc-overhead-limit-exceeded) |
-| 4 | [YARN Memory Overhead](#issue-4-yarn-memory-overhead) |
-| 5 | [Small Files Problem](#issue-5-small-files-problem) |
-| 6 | [Data Skewness in Spark](#issue-6-data-skewness-in-spark) |
-| 7 | [FileAlreadyExistsException](#issue-7-filealreadyexistsexception) |
-| 8 | [FileNotFoundException](#issue-8-filenotfoundexception) |
-| 9 | [Handling Updates and Deletes in Spark](#issue-9-handling-updates-and-deletes-in-spark) |
-| 10 | [Shuffle Failures](#issue-10-shuffle-failures) |
-| 11 | [Serialization Errors](#issue-11-serialization-errors) |
-| 12 | [Broadcast Join Threshold Issues](#issue-12-broadcast-join-threshold-issues) |
-| 13 | [Task Failures and Retries](#issue-13-task-failures-and-retries) |
-| 14 | [Slow Query Performance](#issue-14-slow-query-performance) |
-
----
-
+<a id="most-common-causes-of-oom-outofmemory-errors"></a>
 ### Most Common Causes of OOM (OutOfMemory) Errors
 
 1. **Incorrect usage of Spark** - Using `collect()` on large datasets, improper caching
@@ -2059,6 +2143,7 @@ df.write.partitionBy("date").parquet("output_path")
 
 ---
 
+<a id="quick-reference-common-spark-configurations"></a>
 ## 📋 Quick Reference: Common Spark Configurations
 
 ### Memory Configuration
