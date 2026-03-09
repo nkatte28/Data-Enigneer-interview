@@ -564,6 +564,27 @@ For large data you **must** use Spark UI to check:
 
 ## 📖 Part 2: Common Spark Issues and Solutions
 
+**Quick index:** click an issue to jump to the solution.
+
+| # | Issue |
+|---|-------|
+| 1 | [Executor OutOfMemory (OOM)](#issue-1-executor-outofmemory-oom) |
+| 2 | [Driver OutOfMemory (OOM)](#issue-2-driver-outofmemory-oom) |
+| 3 | [GC Overhead Limit Exceeded](#issue-3-gc-overhead-limit-exceeded) |
+| 4 | [YARN Memory Overhead](#issue-4-yarn-memory-overhead) |
+| 5 | [Small Files Problem](#issue-5-small-files-problem) |
+| 6 | [Data Skewness in Spark](#issue-6-data-skewness-in-spark) |
+| 7 | [FileAlreadyExistsException](#issue-7-filealreadyexistsexception) |
+| 8 | [FileNotFoundException](#issue-8-filenotfoundexception) |
+| 9 | [Handling Updates and Deletes in Spark](#issue-9-handling-updates-and-deletes-in-spark) |
+| 10 | [Shuffle Failures](#issue-10-shuffle-failures) |
+| 11 | [Serialization Errors](#issue-11-serialization-errors) |
+| 12 | [Broadcast Join Threshold Issues](#issue-12-broadcast-join-threshold-issues) |
+| 13 | [Task Failures and Retries](#issue-13-task-failures-and-retries) |
+| 14 | [Slow Query Performance](#issue-14-slow-query-performance) |
+
+---
+
 ### Most Common Causes of OOM (OutOfMemory) Errors
 
 1. **Incorrect usage of Spark** - Using `collect()` on large datasets, improper caching
@@ -583,6 +604,7 @@ Executor OOM is commonly caused by oversized partitions, memory-heavy operators 
 
 If OOM is driven by skew, scaling won’t help much because the data concentrates in one partition, so I mitigate by skew handling—broadcast, AQE skew join optimization, hot-key splitting, or salting—and I also look upstream for default keys causing skew.
 
+<a id="issue-1-executor-outofmemory-oom"></a>
 ## 🔴 Issue 1: Executor OutOfMemory (OOM)
 
 Executor OOM is typically caused by oversized partitions or memory-heavy operators like joins/aggregations/sorts. I reduce per-task memory pressure first—partition sizing, join strategy, caching discipline—then tune executor sizing.
@@ -686,6 +708,7 @@ spark.conf.set("spark.executor.memoryFraction", "0.8")
 
 ---
 
+<a id="issue-2-driver-outofmemory-oom"></a>
 ## 🔴 Issue 2: Driver OutOfMemory (OOM)
 
 I treat driver OOM as a design smell—usually caused by 
@@ -783,6 +806,7 @@ spark.conf.set("spark.sql.autoBroadcastJoinThreshold", "50mb")
 
 ---
 
+<a id="issue-3-gc-overhead-limit-exceeded"></a>
 ## 🔴 Issue 3: GC Overhead Limit Exceeded
 
 ### Error
@@ -912,6 +936,7 @@ spark.conf.set("spark.sql.adaptive.coalescePartitions.enabled", "true")
 
 ---
 
+<a id="issue-4-yarn-memory-overhead"></a>
 ## 🔴 Issue 4: YARN Memory Overhead
 
 ### What is YARN Memory Overhead?
@@ -955,6 +980,7 @@ spark.conf.set("spark.yarn.executor.memoryOverhead", "1024")  # MB
 
 ---
 
+<a id="issue-5-small-files-problem"></a>
 ## 🔴 Issue 5: Small Files Problem
 
 ### Problem
@@ -1241,6 +1267,7 @@ hive -e "CREATE TEMPORARY TABLE temp_table ... LOCATION '/target/path/';
 
 ---
 
+<a id="issue-6-data-skewness-in-spark"></a>
 ## 🔴 Issue 6: Data Skewness in Spark
 
 ### What is Data Skewness?
@@ -1477,6 +1504,7 @@ print(f"Min: {min(partition_sizes)}, Max: {max(partition_sizes)}, Avg: {sum(part
 
 ---
 
+<a id="issue-7-filealreadyexistsexception"></a>
 ## 🔴 Issue 7: FileAlreadyExistsException
 
 ### Error
@@ -1568,6 +1596,7 @@ df.write.parquet("output_path")
 
 ---
 
+<a id="issue-8-filenotfoundexception"></a>
 ## 🔴 Issue 8: FileNotFoundException
 
 ### Error
@@ -1741,6 +1770,7 @@ result = spark.read.parquet("hdfs://persistent/intermediate")
 
 ---
 
+<a id="issue-9-handling-updates-and-deletes-in-spark"></a>
 ## 🔴 Issue 9: Handling Updates and Deletes in Spark
 
 ### Challenge
@@ -1866,6 +1896,7 @@ delta_table.alias("target").merge(
 
 ---
 
+<a id="issue-10-shuffle-failures"></a>
 ## 🔴 Issue 10: Shuffle Failures
 
 ### Error
@@ -1907,6 +1938,7 @@ spark.conf.set("spark.shuffle.service.enabled", "true")
 
 ---
 
+<a id="issue-11-serialization-errors"></a>
 ## 🔴 Issue 11: Serialization Errors
 
 ### Error
@@ -1943,6 +1975,7 @@ df.rdd.map(lambda row: process_row(row, data)).collect()
 
 ---
 
+<a id="issue-12-broadcast-join-threshold-issues"></a>
 ## 🔴 Issue 12: Broadcast Join Threshold Issues
 
 ### Problem
@@ -1962,6 +1995,7 @@ result = broadcast(small_df).join(large_df, "key")
 
 ---
 
+<a id="issue-13-task-failures-and-retries"></a>
 ## 🔴 Issue 13: Task Failures and Retries
 
 ### Common Causes
@@ -1992,6 +2026,7 @@ spark.conf.set("spark.speculation.multiplier", "1.5")
 
 ---
 
+<a id="issue-14-slow-query-performance"></a>
 ## 🔴 Issue 14: Slow Query Performance
 
 ### Common Causes
