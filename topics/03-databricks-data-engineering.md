@@ -243,7 +243,7 @@ df.write.format("delta").save("/mnt/delta/silver/sales")
 
 ### 2. Understanding Your Data: Sample Raw Data
 
-**Before we start coding, let's see what we're working with!**
+**Before we start coding, here is the sample data we'll use in later examples.** You can think of it as raw sales and customer data from a store.
 
 **Sample Raw Sales Data (JSON from S3)**:
 ```json
@@ -533,9 +533,7 @@ delta_table = DeltaTable.forPath(spark, "/mnt/delta/bronze/sales")
 delta_table.alias("target").merge(
     updates_df.alias("source"),
     "target.sale_id = source.sale_id"  # Match on sale_id
-).whenMatchedUpdateAll() \    # If match found → update all columns
- .whenNotMatchedInsertAll() \  # If no match → insert all columns
- .execute()
+).whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()
 ```
 
 **Result**:
@@ -1613,9 +1611,9 @@ Multiple Consumers
 ```
 
 **What is DLT?**
-A declarative framework for building reliable data pipelines. You define **what** you want, DLT handles **how**.
+A declarative framework for building reliable data pipelines. You define **what** you want (tables, quality rules), and DLT handles **how** (scheduling, retries, monitoring). The following subsections (7.1–7.7) cover your first pipeline, expectations, append vs merge, orchestration, and DABs.
 
-#### 5.1 Your First DLT Pipeline
+#### 7.1 Your First DLT Pipeline
 
 **What We're Building**: A simple Bronze → Silver → Gold pipeline.
 
@@ -1682,7 +1680,7 @@ sale_date  | customer_id | daily_revenue | transaction_count
 2024-01-15 | 103         | 200.00        | 1
 ```
 
-#### 5.2 DLT Expectations Explained
+#### 7.2 DLT Expectations Explained
 
 **Three Types of Expectations**:
 
@@ -1715,7 +1713,7 @@ def silver_sales():
     return dlt.read("bronze_sales")
 ```
 
-#### 5.3 DLT Incremental Processing
+#### 7.3 DLT Incremental Processing
 
 **What We're Doing**: Only process new/changed data, not everything.
 
@@ -1743,7 +1741,7 @@ def silver_sales():
 - ✅ Lower costs
 - ✅ Faster updates
 
-#### 5.4 Error Handling in DLT Pipelines
+#### 7.4 Error Handling in DLT Pipelines
 
 **What We're Doing**: Handle failures gracefully so pipelines don't crash.
 
@@ -1787,6 +1785,143 @@ def silver_sales():
 }
 ```
 
+#### 7.5 When DLT Appends vs When It Merges (and How to Pass Merge Keys)
+
+**How DLT decides**:
+- **Append**: A normal `@dlt.table` (or `@dlt.view` → table) only **appends** rows. DLT does not update or delete existing rows. Use this when data only grows (e.g. event streams, logs, fact tables with no updates).
+- **Merge (upsert)**: To **update** or **delete** existing rows by key, you use **`apply_changes`** (or the newer **AUTO CDC** APIs). You give DLT the **merge keys** and a **sequence** column; DLT runs a MERGE under the hood. Use this for CDC, dimension tables, or any source that sends updates/deletes.
+
+**When to use which**:
+
+| Scenario | Use | Why |
+|----------|-----|-----|
+| Events, logs, raw facts (insert-only) | `@dlt.table` only | Append is correct; no keys needed. |
+| CDC feed (INSERT/UPDATE/DELETE) | `apply_changes` (or AUTO CDC) | DLT needs keys + sequence to merge. |
+| Dimension table (e.g. customers) with updates | `apply_changes` (or AUTO CDC) | Same row can change; match on key, then update. |
+
+**How to pass merge keys in DLT — yes, it’s supported**  
+You don’t set merge keys on the table itself. You pass them into **`apply_changes`** (or **`create_auto_cdc_flow`** in the newer API):
+
+- **`keys`**: List of column names that uniquely identify a row (e.g. `["user_id"]` or `["customer_id", "order_id"]`). This is the merge key.
+- **`sequence_by`**: A column (or expression) that defines the order of changes. DLT uses this to pick the latest version when events are out of order.
+
+**Example — merge (upsert) with keys**:
+
+```python
+import dlt
+from pyspark.sql.functions import col
+
+# Bronze: CDC stream
+@dlt.table(name="bronze_customers_cdc")
+def bronze_customers_cdc():
+    return spark.readStream.table("external_cdc_feed")
+
+# Silver: merge by customer_id (you pass keys here, not on the table)
+dlt.apply_changes(
+    target="silver_customers",
+    source="bronze_customers_cdc",
+    keys=["customer_id"],           # merge key
+    sequence_by=col("updated_at"),  # which row wins when out-of-order
+    stored_as_scd_type=1
+)
+```
+
+**What happens**: DLT merges into the target on `keys`; existing rows are updated, new keys are inserted. `sequence_by` decides which value wins. In newer APIs (AUTO CDC) you may create the target with `create_streaming_table` first, then call `create_auto_cdc_flow` with the same `keys` and `sequence_by` idea.
+
+#### 7.6 Orchestrating DLT Jobs
+
+**How DLT pipelines run**: A DLT pipeline is a **pipeline definition** (your notebook or repo with `@dlt.table`, etc.). To run it on a schedule or as part of a larger workflow, you **orchestrate** it — i.e. you tell Databricks when to start a pipeline update.
+
+**Primary way: Databricks Workflows (Jobs)**  
+You add the pipeline as a **Pipeline task** inside a **Job**:
+
+1. **Workflows → Create Job** (or Jobs → Create job).
+2. Add a task and set type to **Pipeline** (or “Delta Live Tables”).
+3. Select your pipeline (or point to the notebook/repo that defines it).
+4. Set **Schedule & Triggers** for when the job runs.
+
+**Ways to trigger a DLT pipeline**:
+
+| Trigger | Use when |
+|--------|----------|
+| **Schedule** (cron / daily / hourly) | Batch DLT: run every night or every hour. |
+| **Manual** (“Run now”) | Ad‑hoc runs from the UI or API. |
+| **Table update** | Run when a source table in Unity Catalog changes. |
+| **File arrival** | Run when new files land in a monitored path. |
+| **Continuous** | Pipeline runs 24/7 (streaming); no schedule, always on. |
+
+**In the UI**: Open your pipeline → **Settings** → you can set a **schedule** (e.g. “Daily at 2 AM”) or leave it manual. To put it in a multi‑step workflow, use a Job with a Pipeline task and add other tasks (notebooks, SQL, etc.) before or after.
+
+**From outside Databricks**: You can start a pipeline run via the **Pipelines REST API** (e.g. from Airflow, Azure Data Factory, or your own scheduler). Example: Airflow’s `DatabricksSubmitRunOperator` with `pipeline_task={"pipeline_id": "<pipeline-id>"}`.
+
+**Summary**: DLT jobs are orchestrated by **Databricks Workflows** (Pipeline task + schedule/triggers) or by **external tools** calling the pipeline API. The pipeline itself doesn’t “schedule” — the job or trigger does.
+
+#### 7.7 Databricks Asset Bundles (DABs)
+
+**What**: DABs let you define Databricks resources (DLT pipelines, jobs, etc.) as **YAML + code** in one project and deploy them with the CLI or CI/CD. Everything lives in Git.
+
+**Why**: Same project can deploy to dev, then prod; you get version control and repeatable deployments.
+
+**Small example**
+
+Project layout:
+```
+sales_pipeline/
+  databricks.yml
+  resources/
+    sales_dlt.pipeline.yml
+  src/
+    sales_tables.py
+```
+
+**`databricks.yml`** — bundle name and which workspace to deploy to:
+```yaml
+bundle:
+  name: sales_pipeline
+
+targets:
+  dev:
+    workspace:
+      host: https://adb-xxx.azuredatabricks.net
+  prod:
+    workspace:
+      host: https://adb-yyy.azuredatabricks.net
+```
+
+**`resources/sales_dlt.pipeline.yml`** — the DLT pipeline (points at your code):
+```yaml
+resources:
+  pipelines:
+    sales_dlt:
+      name: "Sales DLT Pipeline"
+      storage: /pipelines/sales_dlt
+      libraries:
+        - notebook:
+            path: ../src/sales_tables   # notebook or .py with @dlt.table
+      target: dev
+```
+(You add cluster, schedule, etc. in the same file as needed.)
+
+**`src/sales_tables.py`** — your pipeline logic (same DLT code you already write):
+```python
+import dlt
+
+@dlt.table(name="bronze_sales")
+def bronze_sales():
+    return spark.read.format("json").load("/mnt/raw/sales/")
+
+@dlt.table(name="silver_sales")
+def silver_sales():
+    return dlt.read("bronze_sales").filter("amount > 0")
+```
+
+**What you do**:
+1. `databricks bundle init` — creates a starter bundle (or copy the layout above).
+2. `databricks bundle validate` — checks your YAML.
+3. `databricks bundle deploy -t dev` — deploys the pipeline to the `dev` workspace.
+
+After deploy, the pipeline appears in the Databricks UI; you can run it from the UI or add a job in the bundle that triggers it. **In short**: DABs = your DLT (and jobs) in YAML + code, deploy once to any target.
+
 ---
 
 ### 8. Spark Structured Streaming - Real-Time Processing
@@ -1794,7 +1929,7 @@ def silver_sales():
 **What is Structured Streaming?**
 Process data in real-time as it arrives (like Kafka streams).
 
-#### 6.1 Your First Streaming Pipeline
+#### 8.1 Your First Streaming Pipeline
 
 **What We're Building**: Read sales events from Kafka and write to Delta Lake in real-time.
 
@@ -1858,7 +1993,7 @@ query.awaitTermination()
 - ⚠️ Never delete checkpoint directory! If deleted, stream restarts from beginning
 - Location: `/mnt/delta/checkpoints/sales_stream`
 
-#### 6.2 Understanding Checkpoints
+#### 8.2 Understanding Checkpoints
 
 **What is a Checkpoint?**
 A checkpoint saves the current position in the stream so you can resume after a failure.
@@ -1887,7 +2022,7 @@ With checkpoint:
 
 **⚠️ Important**: Never delete checkpoint directory! If deleted, stream will restart from beginning.
 
-#### 6.3 Output Modes Explained
+#### 8.3 Output Modes Explained
 
 **Three Output Modes**:
 
@@ -1931,7 +2066,7 @@ hourly_sales.writeStream \
     .start("/mnt/delta/silver/hourly_sales")
 ```
 
-#### 6.4 Watermarks - Handling Late Data
+#### 8.4 Watermarks - Handling Late Data
 
 **What is a Watermark?**
 A threshold for accepting late-arriving data.
@@ -1959,7 +2094,7 @@ sales_stream \
 - Late data within watermark → processed ✅
 - Data older than watermark → dropped ❌
 
-#### 6.5 Triggers, Windows, and Intervals
+#### 8.5 Triggers, Windows, and Intervals
 
 **Three different “intervals”** (don’t mix them up):
 
@@ -2081,6 +2216,8 @@ def gold_hourly_sales():
 
 ---
 
+**Part 4: Integration & Optimization** — The next sections (10–13) cover reading from external sources, cluster sizing, Spark job tuning, and predictive optimization.
+
 ### 10. Reading from Different Sources
 
 #### 10.1 Snowflake
@@ -2171,59 +2308,6 @@ mongo_df = spark.read \
     .option("collection", "sales") \
     .load()
 ```
-
----
-
-### 13. Latest Optimizations - Predictive Optimization
-
-**What is Predictive Optimization?**
-AI-powered feature that automatically optimizes your Delta tables based on query patterns. No manual tuning needed!
-
-**Why Predictive Optimization?**
-- ✅ **Automatic**: Learns from your queries and optimizes automatically
-- ✅ **Intelligent**: Uses ML to predict optimal file sizes and clustering
-- ✅ **Zero Maintenance**: Runs in background, no manual intervention
-- ✅ **Cost Effective**: Reduces storage and compute costs
-
-**How It Works**:
-```
-Query Patterns
-    ↓
-ML Model (Learns)
-    ↓
-Predictive Optimization
-    ↓
-Auto-OPTIMIZE & Auto-Compact
-    ↓
-Better Performance
-```
-
-**Enable Predictive Optimization**:
-```sql
--- Enable on table
-ALTER TABLE nike_prod.sales.raw_sales
-SET TBLPROPERTIES (
-    'delta.predictiveOptimization.enabled' = 'true'
-);
-```
-
-**What It Does Automatically**:
-- ✅ Optimizes file sizes based on query patterns
-- ✅ Auto-compacts small files
-- ✅ Suggests optimal clustering columns
-- ✅ Monitors and adjusts continuously
-
-**Benefits**:
-- Before: Manual OPTIMIZE runs → 30 min/week
-- After: Automatic optimization → 0 min/week ✅
-- Performance: 2-5x faster queries
-- Cost: 20-30% storage reduction
-
-**Best Practices**:
-- ✅ Enable on frequently queried tables
-- ✅ Let it run for 1-2 weeks to learn patterns
-- ✅ Monitor results in Databricks UI
-- ✅ Works great with Unity Catalog
 
 ---
 
@@ -2450,79 +2534,131 @@ new_sales = spark.read.format("delta") \
 
 ---
 
+### 13. Latest Optimizations - Predictive Optimization
+
+**What is Predictive Optimization?**
+AI-powered feature that automatically optimizes your Delta tables based on query patterns. No manual tuning needed.
+
+**Why use it?**
+- **Automatic**: Learns from your queries and optimizes
+- **Zero maintenance**: Runs in the background
+- **Cost effective**: Can reduce storage and improve query speed
+
+**Enable it**:
+```sql
+ALTER TABLE nike_prod.sales.raw_sales
+SET TBLPROPERTIES ('delta.predictiveOptimization.enabled' = 'true');
+```
+
+**What it does**: Auto-OPTIMIZE and auto-compact based on query patterns. Let it run 1–2 weeks to learn; then monitor in the Databricks UI.
+
+---
+
 ### 14. Data Governance & PII Protection
 
-#### 14.1 Column-Level Security
+Three ideas: **service principals** (who runs jobs), **column security** (who sees which columns), and **row-level security** (who sees which rows). All use Unity Catalog.
 
-**What We're Doing**: Mask PII data (emails, phone numbers).
+---
 
-**Sample Customer Data**:
-```
-customer_id | name          | email                    | phone
-------------|---------------|--------------------------|----------
-101         | Sarah Johnson | sarah.johnson@email.com  | 555-1234
-102         | Mike Chen     | mike.chen@email.com      | 555-5678
-```
+#### 14.1 Service Principals
 
-**Mask Email**:
+**What**: An identity for *machines*, not people—used by jobs, CI/CD, and BI tools so you don’t use personal logins in production.
+
+**Use when**: ETL jobs, scheduled workflows, Power BI / Tableau, or any app that talks to Databricks.
+
+**How**: Create the service principal in the account, then grant it only what it needs (same `GRANT` as for users):
+
 ```sql
--- Create masking function
-CREATE FUNCTION mask_email(email STRING)
+GRANT USE CATALOG ON CATALOG nike_prod TO `etl-job-sp`;
+GRANT USE SCHEMA ON SCHEMA nike_prod.sales TO `etl-job-sp`;
+GRANT SELECT ON TABLE nike_prod.sales.raw_sales TO `etl-job-sp`;
+GRANT MODIFY ON TABLE nike_prod.sales.silver_sales TO `etl-job-sp`;
+```
+
+Run the job (or BI connection) as that identity. **Example**: Nightly ETL runs as `prod-sales-etl`; it can read bronze/silver and write only to the tables you granted MODIFY on.
+
+---
+
+#### 14.2 Column Security: Hide or Mask
+
+**What**: Control what users see in sensitive columns (email, SSN, phone).
+
+- **Hide**: User can’t see the column at all → use **column permissions**.
+- **Mask**: User sees the column but values are redacted (e.g. `sa***@email.com`) → use a **column mask** (Unity Catalog UDF).
+
+**Hide columns** — grant only the columns they’re allowed to see:
+
+```sql
+GRANT SELECT(customer_id, name, city) ON TABLE nike_prod.sales.customers TO `analysts@nike.com`;
+DENY SELECT(email, phone, ssn) ON TABLE nike_prod.sales.customers TO `analysts@nike.com`;
+```
+
+**Mask a column** — define a function (e.g. show full email only for `pii_full_access`), then attach it to the column:
+
+```sql
+CREATE OR REPLACE FUNCTION nike_prod.sales.mask_email(email STRING)
 RETURNS STRING
-RETURN CONCAT(
-    SUBSTRING(email, 1, 2),
-    '***',
-    SUBSTRING(email, POSITION('@' IN email))
-);
+RETURN CASE WHEN is_member('pii_full_access') THEN email
+  ELSE CONCAT(SUBSTRING(email, 1, 2), '***', SUBSTRING(email, POSITION('@' IN email))) END;
 
--- Apply masking
-SELECT 
-    customer_id,
-    mask_email(email) AS masked_email,
-    name
-FROM nike_prod.sales.customers;
+ALTER TABLE nike_prod.sales.customers ALTER COLUMN email SET MASK nike_prod.sales.mask_email;
 ```
 
-**Result**:
-```
-customer_id | masked_email        | name
-------------|---------------------|-------------
-101         | sa***@email.com     | Sarah Johnson
-102         | mi***@email.com     | Mike Chen
-```
+**Example**: Analysts see `sa***@email.com`; compliance sees the full email.
 
-**Column-Level Permissions**:
-```sql
--- Grant access to non-PII columns only
-GRANT SELECT(customer_id, name, city) ON TABLE nike_prod.sales.customers 
-TO `analysts@nike.com`;
+---
 
--- Deny access to PII columns
-DENY SELECT(email, phone, ssn) ON TABLE nike_prod.sales.customers 
-TO `analysts@nike.com`;
-```
+#### 14.3 Row-Level Security (Row Filters)
 
-#### 14.2 Row-Level Security
+**What**: Same table, but each user or group sees only *some rows*—e.g. their region, their department, or their tenant. Implemented as a **row filter**: a function that returns TRUE for “allowed” rows.
 
-**What We're Doing**: Users can only see their own data.
+**How**: Write a SQL function that returns TRUE when the row is allowed (e.g. user is in the right group or the row’s region matches), then attach it to the table:
 
 ```sql
--- Create row filter
-CREATE FUNCTION nike_prod.sales.customer_filter()
+-- Example: users in group region_EMEA see only rows where region_id = 'EMEA'
+CREATE OR REPLACE FUNCTION nike_prod.sales.region_filter(region_id STRING)
 RETURNS BOOLEAN
-RETURN current_user() = email OR 
-       is_member('data_engineers@nike.com');
+RETURN is_member('data_engineers@nike.com') OR is_member(CONCAT('region_', region_id));
 
--- Apply filter
-ALTER TABLE nike_prod.sales.customers
-SET ROW FILTER nike_prod.sales.customer_filter ON (email);
+ALTER TABLE nike_prod.sales.sales_fact SET ROW FILTER nike_prod.sales.region_filter ON (region_id);
 ```
+
+**Examples**: Multi-tenant (filter on `tenant_id`); regional managers (filter on `region_id`); HR (filter on `department`).
+
+---
+
+#### 14.4 Quick Reference
+
+| Goal | Use |
+|------|-----|
+| Jobs / BI connect without a person logging in | Service principal + grants |
+| Users must not see PII at all | Column permissions (GRANT/DENY SELECT on columns) |
+| Users can see column but values redacted | Column mask (UDF + ALTER COLUMN SET MASK) |
+| Users see only “their” rows (region, tenant, dept) | Row filter (UDF + SET ROW FILTER ON column) |
 
 ---
 
 ### 15. Cost Optimization
 
-#### 15.1 Cluster Optimization
+#### 15.1 When to Use Which Compute (Job Cluster vs Serverless vs Interactive)
+
+**Three main compute options** — each has a different use case and cost profile.
+
+| Compute type | What it is | When to use | Cost implication |
+|--------------|------------|-------------|-------------------|
+| **Interactive (all-purpose) cluster** | Long-lived cluster you start and stop; shared by users. | Development, ad-hoc notebooks, exploration, debugging. | **Highest risk**: Runs until you stop it or autotermination kicks in. Idle time = money. Always set `autotermination_minutes` (e.g. 30). |
+| **Job cluster** | Cluster created for a single job; terminates when the job finishes. | Scheduled pipelines, ETL jobs, batch workflows, production DLT/Spark jobs. | **Most cost-effective for production**: Pay only for the time the job runs (e.g. 20 min/day vs 24 hours). Prefer over all-purpose for any scheduled work. |
+| **Serverless** | Databricks manages and scales compute; no cluster to configure. | SQL warehouses (Databricks SQL), serverless jobs/workflows (when enabled). | **Pay per use**: No idle cost; scale to zero. Good for variable or bursty workloads. Slightly higher $ per unit of work than job clusters in some cases, but no idle. |
+
+**Simple rules**:
+- **Interactive work** (notebooks, ad-hoc) → All-purpose cluster with **autotermination** (e.g. 30 min).
+- **Scheduled jobs / ETL / DLT** → **Job cluster** (terminate after job). Avoid running these on a 24/7 all-purpose cluster.
+- **SQL dashboards / ad-hoc SQL** → **Serverless SQL warehouse** when available; no cluster to manage, scale to zero.
+- **Cost**: Job clusters and serverless avoid paying for idle time; all-purpose clusters are the main source of runaway cost if left on or without autotermination.
+
+**Interview line**: *"For production we use job clusters so we only pay for the time the pipeline runs. For dev we use all-purpose with autotermination. For SQL we use serverless warehouses so we don’t manage clusters."*
+
+#### 15.2 Cluster Optimization
 
 **Right-Size Clusters**:
 ```python
@@ -2541,7 +2677,7 @@ cluster_config = {
 - ✅ Use spot instances for non-critical jobs
 - ✅ Right-size instances (don't over-provision)
 
-#### 15.2 Job Optimization
+#### 15.3 Job Optimization
 
 **Optimize Job Costs**:
 ```python
@@ -2565,7 +2701,7 @@ spark.sql("VACUUM delta.`/mnt/delta/sales` RETAIN 7 DAYS")
 spark.sql("OPTIMIZE delta.`/mnt/delta/sales` ZORDER BY (customer_id, date)")
 ```
 
-#### 15.3 Serverless Compute
+#### 15.4 Serverless Compute
 
 **What is Serverless?**
 Compute that automatically scales and manages infrastructure for you.
@@ -2588,7 +2724,7 @@ Compute that automatically scales and manages infrastructure for you.
 # No cluster management needed!
 ```
 
-#### 15.4 Photon Engine
+#### 15.5 Photon Engine
 
 **What is Photon?**
 Databricks' native vectorized query engine (faster than Spark for some workloads).
@@ -2615,7 +2751,7 @@ cluster_config = {
 
 **Note**: Photon is automatically enabled in Databricks SQL warehouses.
 
-#### 15.5 Storage Optimization
+#### 15.6 Storage Optimization
 
 **Reduce Storage Costs**:
 ```python
