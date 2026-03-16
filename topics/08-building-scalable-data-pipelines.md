@@ -22,7 +22,18 @@
 
 ## 1. What Scalable Pipelines Mean
 
-Building scalable data pipelines means designing pipelines that can handle increasing data volume, more sources, and more users without major redesign or performance issues. Interviewers want to hear how you think about architecture, performance, reliability, and cost.
+Building scalable data pipelines means designing pipelines that can handle increasing data volume, more sources, and more users without major redesign or performance issues. 
+
+To build scalable data pipelines, 
+I focus on designing a distributed architecture that can handle increasing data volume and workload. 
+I typically use a layered architecture with ingestion, raw, transformation, and curated layers. 
+I rely on incremental processing instead of full loads, 
+partition large datasets for efficient queries, 
+and design pipelines to run tasks in parallel where possible. 
+I also ensure pipelines are idempotent so they can be safely rerun and use orchestration tools for scheduling, retries, and dependency management. 
+Finally, I include monitoring and performance optimizations to ensure the pipeline remains reliable as data scales.
+
+
 
 **Scalable** = handle more data or higher throughput by adding/tuning resources instead of rewriting.
 
