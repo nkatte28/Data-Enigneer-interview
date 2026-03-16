@@ -31,15 +31,11 @@
 
 ## 🎯 Learning Goals
 
-By the end of this topic, you should be able to:
-- Understand AI agents and their architecture
-- Master LLM fundamentals and prompt engineering
-- Build RAG systems with vector databases
-- Create chatbots for data engineering
-- Build AI agents for data pipeline automation
-- Deploy AI agents in production
-- Monitor and optimize AI systems
-- Design scalable AI agent architectures
+- What an AI agent is and how it uses an LLM + tools + (optionally) RAG
+- LLM basics: prompts, **temperature** (0 = deterministic, 1 = creative), **max_tokens** (length cap)
+- RAG: embed docs → vector DB → retrieve by query → prompt LLM with context
+- Build a simple chatbot and a SQL-from-NL agent
+- Deploy and monitor (latency, token usage, errors)
 
 ---
 
@@ -48,9 +44,9 @@ By the end of this topic, you should be able to:
 ### 1. AI Agents Overview
 
 **What is an AI Agent?**
-An AI agent is an autonomous system that can perceive its environment, make decisions, and take actions to achieve specific goals using AI/ML models.
+A program that uses an LLM to understand input, decide what to do, and call tools (e.g., query a DB, run code) to get a result—instead of just answering from memory.
 
-**Key Components**:
+**Key parts**:
 - **LLM (Large Language Model)**: Core reasoning engine
 - **Vector Database**: Stores embeddings for retrieval
 - **RAG System**: Retrieves relevant context
@@ -104,14 +100,9 @@ An AI agent is an autonomous system that can perceive its environment, make deci
         └──────────────────────────────┘
 ```
 
-**Types of AI Agents**:
+**Types:** Single-turn; multi-turn with memory; tool-using (run code, query DBs); autonomous (multi-step plans).
 
-1. **Simple Agents**: Single-turn conversations
-2. **Conversational Agents**: Multi-turn with memory
-3. **Tool-Using Agents**: Can execute code, query databases
-4. **Autonomous Agents**: Can plan and execute multi-step tasks
-
-**Data Engineering Use Cases**:
+**Data engineering use cases**:
 - ✅ **Data Pipeline Chatbot**: Answer questions about pipelines
 - ✅ **SQL Query Generator**: Generate SQL from natural language
 - ✅ **Data Quality Monitor**: Detect and explain data issues
@@ -122,9 +113,9 @@ An AI agent is an autonomous system that can perceive its environment, make deci
 
 ### 2. Understanding Your Data: Sample Raw Data
 
-**Before we build AI agents, let's see what we're working with!**
+**What the agent will work with** — example shapes of data and pipeline metadata:
 
-**Sample Sales Data**:
+**Sample sales row**:
 ```json
 {
   "sale_id": "SALE-001",
@@ -137,7 +128,7 @@ An AI agent is an autonomous system that can perceive its environment, make deci
 }
 ```
 
-**Sample Pipeline Metadata**:
+**Sample pipeline metadata** (what we might store for RAG/docs):
 ```json
 {
   "pipeline_name": "sales_etl",
@@ -150,21 +141,16 @@ An AI agent is an autonomous system that can perceive its environment, make deci
 }
 ```
 
-**What We're Trying to Achieve**:
-1. Build AI agent that understands data pipelines
-2. Answer questions about data
-3. Generate SQL queries
-4. Explain data quality issues
-5. Automate data engineering tasks
+**Goals**: Answer pipeline questions, generate SQL, explain data quality issues, and automate data-engineering tasks.
 
 ---
 
 ### 3. LLM Fundamentals
 
 **What is an LLM?**
-Large Language Model - AI model trained on vast text data to understand and generate human-like text.
+A model trained on huge amounts of text that predicts the next tokens—used for understanding and generating language (chat, code, summaries).
 
-**Popular LLMs**:
+**Common choices**:
 - **OpenAI GPT-4**: Most capable, paid
 - **Anthropic Claude**: Good for long context
 - **Llama 2/3**: Open-source, self-hosted
@@ -208,19 +194,9 @@ Large Language Model - AI model trained on vast text data to understand and gene
 
 #### 3.1 Prompt Engineering
 
-**What is Prompt Engineering?**
-The art of crafting effective prompts to get desired outputs from LLMs.
+**What is it?** Writing clear instructions and examples so the LLM returns the right format and content.
 
-**Prompt Structure**:
-```
-System Message (Role/Context)
-    ↓
-User Query
-    ↓
-Context/Examples
-    ↓
-Output Format
-```
+**Typical order:** System (role/context) → User query → Context or examples → Output format.
 
 **Basic Prompt Example**:
 ```python
@@ -252,7 +228,7 @@ SQL:
 """
 ```
 
-**Chain-of-Thought Prompting**:
+**Chain-of-thought** (ask for step-by-step reasoning):
 ```python
 prompt = """
 Analyze this data quality issue step by step:
@@ -269,59 +245,63 @@ Analysis:
 
 #### 3.2 Using LLMs in Databricks
 
-**Install Libraries**:
+**Install libraries**:
 ```python
-# Install required packages
 %pip install openai langchain databricks-vectorsearch
 ```
 
-**OpenAI Integration**:
+**OpenAI call with parameter notes**:
+
+| Parameter | What it does | Typical values |
+|-----------|----------------|----------------|
+| `temperature` | Randomness of output. Higher = more varied/creative; lower = more deterministic. | 0–0.3 for SQL/code; 0.7–0.9 for chat |
+| `max_tokens` | Hard cap on length of the model’s reply (tokens ≈ words/4). | 500–2000 for short answers; 4000+ for long |
+| `top_p` (optional) | Nucleus sampling: only sample from top tokens whose cumulative probability ≤ this. | 0.9–1.0; often used with or instead of temperature |
+
 ```python
 from openai import OpenAI
 import os
 
-# Initialize OpenAI client
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-# Simple completion
 response = client.chat.completions.create(
     model="gpt-4",
     messages=[
         {"role": "system", "content": "You are a data engineering assistant."},
         {"role": "user", "content": "What is a data pipeline?"}
     ],
-    temperature=0.7,
-    max_tokens=500
+    temperature=0.7,   # Slightly creative, good for conversational answers
+    max_tokens=500    # Limit response length; 500 ≈ 125–375 words
 )
 
 answer = response.choices[0].message.content
 print(answer)
 ```
 
-**Databricks Foundation Models**:
+**Databricks foundation models** (same idea: control temperature and length):
 ```python
-from databricks import sql
 from langchain.llms import Databricks
 
-# Use Databricks foundation models
 llm = Databricks(
     endpoint_name="databricks-dbrx-instruct",
-    model_kwargs={"temperature": 0.7}
+    model_kwargs={
+        "temperature": 0.7,   # Same meaning as OpenAI: higher = more varied
+        "max_tokens": 500     # Max length of generated response
+    }
 )
 
 response = llm("What is a data pipeline?")
 print(response)
 ```
 
-**LangChain Integration**:
+**LangChain (wraps OpenAI; parameters are the same)**:
 ```python
 from langchain.chat_models import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 
-# Initialize LangChain LLM
 llm = ChatOpenAI(
     model_name="gpt-4",
-    temperature=0.7
+    temperature=0.7    # LangChain passes this to the API; 0.7 = balanced for chat
 )
 
 messages = [
@@ -337,14 +317,9 @@ print(response.content)
 
 ### 4. Vector Databases
 
-**What is a Vector Database?**
-Specialized database for storing and searching high-dimensional vectors (embeddings).
+**What is it?** A store for *embeddings* (numeric vectors from text). You search by “nearest vectors,” not by exact keywords.
 
-**Why Vector Databases?**
-- ✅ Fast similarity search
-- ✅ Semantic search (meaning, not keywords)
-- ✅ Handles high-dimensional vectors
-- ✅ Optimized for ML workloads
+**Why use one?** Fast similarity search by meaning (e.g., “sales pipeline status” matches “how does the ETL job run?”) and built for many dimensions (e.g., 1536).
 
 **Vector Database Architecture Flow**:
 ```
@@ -386,8 +361,7 @@ Specialized database for storing and searching high-dimensional vectors (embeddi
 
 #### 4.1 Databricks Vector Search
 
-**What is Databricks Vector Search?**
-Managed vector database service in Databricks for storing and searching embeddings.
+**What is it?** Databricks’ managed service to store and query embeddings (no separate DB to run).
 
 **Create Vector Search Index**:
 ```python
@@ -405,7 +379,7 @@ vsc.create_endpoint(
     endpoint_type="STANDARD"
 )
 
-# Create index
+# Create index — dimension must match your embedding model (e.g. text-embedding-3-small = 1536)
 index_name = "pipeline-docs-index"
 vsc.create_index(
     endpoint_name=endpoint_name,
@@ -415,7 +389,7 @@ vsc.create_index(
         "fields": [
             {"name": "doc_id", "type": "string"},
             {"name": "text", "type": "string"},
-            {"name": "embedding", "type": "vector", "dimension": 1536}
+            {"name": "embedding", "type": "vector", "dimension": 1536}  # Must match embedding size
         ]
     }
 )
@@ -425,15 +399,13 @@ vsc.create_index(
 ```python
 from langchain.embeddings import OpenAIEmbeddings
 
-# Initialize embedding model
+# Embedding model choice sets vector size (e.g. text-embedding-3-small → 1536 dims)
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
-# Generate embedding for document
 doc_text = "Sales pipeline processes 1M records daily from S3 to Redshift"
 doc_embedding = embeddings.embed_query(doc_text)
 
-print(f"Embedding dimension: {len(doc_embedding)}")
-# Output: 1536
+print(f"Embedding dimension: {len(doc_embedding)}")  # 1536 for this model
 ```
 
 **Insert Documents**:
@@ -480,7 +452,7 @@ vsc.upsert(
 query = "How does the sales pipeline work?"
 query_embedding = embeddings.embed_query(query)
 
-# Search
+# num_results (top_k): how many nearest neighbors to return; 3–5 is typical for RAG
 results = vsc.similarity_search(
     endpoint_name=endpoint_name,
     index_name=index_name,
@@ -548,14 +520,9 @@ results = collection.query(
 
 ### 5. RAG (Retrieval Augmented Generation)
 
-**What is RAG?**
-Technique that combines retrieval (finding relevant documents) with generation (LLM creating response).
+**What is RAG?** First *retrieve* relevant docs (e.g., via vector search), then *generate* an answer with the LLM using that text as context.
 
-**Why RAG?**
-- ✅ Reduces hallucinations (LLM makes up facts)
-- ✅ Uses up-to-date information
-- ✅ Grounds responses in real data
-- ✅ Better for domain-specific knowledge
+**Why use it?** Cuts hallucinations, uses your current data/docs, and keeps answers grounded in what you actually have.
 
 **RAG Architecture Flow**:
 ```
@@ -616,15 +583,15 @@ documents = [
 ]
 ```
 
-**Step 2: Generate Embeddings**:
+**Step 2: Generate embeddings** (chunk first so each piece fits the embedding model and retrieval):
 ```python
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-# Initialize embeddings
 embeddings = OpenAIEmbeddings()
 
-# Split documents into chunks
+# chunk_size: max characters per chunk; 500 keeps context tight
+# chunk_overlap: overlap between chunks so we don’t cut sentences in a bad place
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=500,
     chunk_overlap=50
@@ -654,87 +621,76 @@ vsc.upsert(
 )
 ```
 
-**Step 4: RAG Query Function**:
+**Step 4: RAG query function** (with parameter notes):
 ```python
 def rag_query(user_query: str, top_k: int = 3):
     """
-    RAG query: Retrieve relevant context and generate response
+    RAG: embed query → vector search → build prompt with context → LLM.
     """
-    # Step 1: Generate query embedding
+    # Step 1: Same embedding model as index; turns query into a vector
     query_embedding = embeddings.embed_query(user_query)
-    
-    # Step 2: Search similar documents
+
+    # Step 2: top_k = how many chunks to retrieve; 3–5 is common
     results = vsc.similarity_search(
         endpoint_name=endpoint_name,
         index_name=index_name,
         query_vector=query_embedding,
-        num_results=top_k
+        num_results=top_k   # More = more context but noisier and slower
     )
-    
-    # Step 3: Build context
+
+    # Step 3: One string of context for the prompt
     context = "\n\n".join([r["text"] for r in results])
-    
-    # Step 4: Build prompt
-    prompt = f"""You are a data engineering assistant. Answer questions using the provided context.
+
+    prompt = f"""You are a data engineering assistant. Answer using only the context below.
 
 Context:
 {context}
 
 Question: {user_query}
 
-Answer based on the context above. If the answer is not in the context, say "I don't have that information."
+If the answer is not in the context, say "I don't have that information."
 """
-    
-    # Step 5: Generate response
+
+    # Step 4: LLM call — temperature 0.7 for natural answers; add max_tokens if needed
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful data engineering assistant."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.7
+        temperature=0.7,   # Slightly creative; for strict factual answers use 0.2–0.3
+        max_tokens=500    # Optional: cap length so responses don’t run long
     )
-    
+
     return response.choices[0].message.content
 
-# Example usage
+# Example
 answer = rag_query("What is the status of sales pipeline?")
 print(answer)
 ```
 
-**Step 5: Enhanced RAG with Metadata Filtering**:
+**Step 5: RAG with metadata filter** (e.g., only docs for one pipeline):
 ```python
 def rag_query_with_filter(user_query: str, pipeline_name: str = None):
-    """
-    RAG query with metadata filtering
-    """
     query_embedding = embeddings.embed_query(user_query)
-    
-    # Search with metadata filter
+
     results = vsc.similarity_search(
         endpoint_name=endpoint_name,
         index_name=index_name,
         query_vector=query_embedding,
         num_results=3,
-        filters={"pipeline": pipeline_name} if pipeline_name else None
+        filters={"pipeline": pipeline_name} if pipeline_name else None  # Restrict by metadata
     )
-    
+
     context = "\n\n".join([r["text"] for r in results])
-    
-    prompt = f"""Context:
-{context}
+    prompt = f"""Context:\n{context}\n\nQuestion: {user_query}\nAnswer:"""
 
-Question: {user_query}
-
-Answer:
-"""
-    
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.7
+        temperature=0.7   # Same as above: balance between focused and natural
     )
-    
+
     return response.choices[0].message.content
 ```
 
@@ -742,11 +698,7 @@ Answer:
 
 ### 6. Databricks ML & AI
 
-**Databricks AI Features**:
-- ✅ **MLflow**: Model tracking and deployment
-- ✅ **Vector Search**: Managed vector database
-- ✅ **Foundation Models**: Pre-trained LLMs
-- ✅ **ML Runtime**: Pre-configured ML environments
+**Relevant pieces**: MLflow (track/deploy models), Vector Search (embeddings), Foundation Models (hosted LLMs), ML Runtime (preconfigured env).
 
 **MLflow Integration**:
 ```python
@@ -770,14 +722,16 @@ with mlflow.start_run():
     mlflow.log_metric("response_time", 1.2)
 ```
 
-**Databricks Foundation Models**:
+**Databricks Foundation Models** (parameter meanings same as before):
 ```python
 from langchain.llms import Databricks
 
-# Use Databricks DBRX model
 llm = Databricks(
     endpoint_name="databricks-dbrx-instruct",
-    model_kwargs={"temperature": 0.7, "max_tokens": 500}
+    model_kwargs={
+        "temperature": 0.7,   # 0 = deterministic; 1 = more random
+        "max_tokens": 500     # Stops generation after this many tokens
+    }
 )
 
 response = llm("What is a data pipeline?")
@@ -788,8 +742,7 @@ print(response)
 
 ### 7. Building Chatbots
 
-**What is a Chatbot?**
-Conversational AI agent that can interact with users in natural language.
+**What is it?** An agent that keeps conversation history and replies in natural language (often with RAG or tools).
 
 **Chatbot Architecture Flow**:
 ```
@@ -833,7 +786,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 
-# Initialize LLM
+# LLM: temperature 0.7 = natural chat; use 0.2–0.3 for more deterministic (e.g. tool choice)
 llm = ChatOpenAI(model_name="gpt-4", temperature=0.7)
 
 # Initialize memory
@@ -859,11 +812,12 @@ def chatbot(user_message: str, chat_history: list = []):
     # Add current message
     messages.append({"role": "user", "content": user_message})
     
-    # Generate response
+    # temperature=0.7: good for multi-turn chat; history already gives context
     response = client.chat.completions.create(
         model="gpt-4",
         messages=messages,
-        temperature=0.7
+        temperature=0.7,
+        max_tokens=1024   # Allow longer replies when explaining pipelines
     )
     
     assistant_message = response.choices[0].message.content
@@ -980,25 +934,17 @@ print(response)
 
 ### 8. Data Engineering AI Agents
 
-**What are Data Engineering AI Agents?**
-Specialized AI agents for automating data engineering tasks.
-
-**Use Cases**:
-1. **SQL Query Generator**: Generate SQL from natural language
-2. **Pipeline Monitor**: Monitor and explain pipeline failures
-3. **Data Quality Agent**: Detect and explain data issues
-4. **Documentation Generator**: Auto-generate pipeline docs
-5. **Anomaly Explainer**: Explain data anomalies
+**What are they?** Agents that do data-engineering tasks: generate SQL, explain pipeline failures, summarize data quality, document pipelines, or explain anomalies.
 
 #### 8.1 SQL Query Generator Agent
 
-**Agent that Generates SQL from Natural Language**:
+**SQL from natural language** (parameters matter a lot here):
 ```python
 def sql_generator_agent(user_query: str, schema_info: str) -> str:
     """
-    Generate SQL query from natural language
+    Generate SQL from natural language. Use low temperature so output is stable and correct.
     """
-    prompt = f"""You are a SQL query generator. Generate SQL queries from natural language.
+    prompt = f"""You are a SQL query generator. Generate SQL from natural language.
 
 Database Schema:
 {schema_info}
@@ -1013,14 +959,15 @@ SQL: SELECT customer_id, SUM(amount) as total_revenue FROM sales GROUP BY custom
 Question: {user_query}
 SQL:
 """
-    
+
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a SQL expert. Generate only SQL queries."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.3  # Lower temperature for more deterministic SQL
+        temperature=0.3,   # Low = deterministic; critical for SQL (same question → same query)
+        max_tokens=500    # SQL rarely needs more; prevents long rambling
     )
     
     sql_query = response.choices[0].message.content.strip()
@@ -1098,7 +1045,8 @@ Explanation:
         explanation = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
+            temperature=0.7,   # Natural language explanation; a bit of variety is fine
+            max_tokens=300
         )
         return explanation.choices[0].message.content
 ```
@@ -1132,12 +1080,13 @@ Analysis:
             {"role": "system", "content": "You are a data engineering expert."},
             {"role": "user", "content": prompt}
         ],
-        temperature=0.3
+        temperature=0.3,   # Low: we want consistent, factual analysis of logs
+        max_tokens=800    # Enough for cause + solution + impact
     )
-    
+
     return response.choices[0].message.content
 
-# Example usage
+# Example
 logs = """
 2024-01-15 02:00:00 - Pipeline started
 2024-01-15 02:05:00 - Reading from s3://nike-raw/sales/
@@ -1175,12 +1124,13 @@ Analysis:
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
+        temperature=0.3,   # Analytical output: stick to the metrics, minimal creativity
+        max_tokens=600
     )
-    
+
     return response.choices[0].message.content
 
-# Example usage
+# Example
 metrics = {
     "total_records": 1000000,
     "null_percentage": 2.5,
@@ -1197,11 +1147,7 @@ print(analysis)
 
 ### 9. Real-Time AI Agents
 
-**Real-Time Use Cases**:
-1. **Streaming Data Analysis**: Analyze streaming data in real-time
-2. **Anomaly Detection**: Detect and explain anomalies
-3. **Real-Time Recommendations**: Provide recommendations based on live data
-4. **Alert Explanation**: Explain alerts in real-time
+**Ideas:** Analyze streaming batches, detect + explain anomalies, explain alerts in real time. Pattern: stream → aggregate or detect → optional LLM call to explain.
 
 #### 9.1 Streaming Data Analysis Agent
 
@@ -1248,9 +1194,10 @@ Analysis:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
+            temperature=0.7,   # Exploratory analysis; some variation is OK
+            max_tokens=500
         )
-        
+
         analysis = response.choices[0].message.content
         print(f"Batch {batch_id} Analysis:\n{analysis}")
     
@@ -1290,17 +1237,17 @@ Analysis:
     response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.3
+        temperature=0.3,   # We want consistent, factual explanation of why it’s an anomaly
+        max_tokens=400
     )
-    
+
     analysis = response.choices[0].message.content
-    
     return {
         "is_anomaly": "Yes" in analysis,
         "explanation": analysis
     }
 
-# Example usage
+# Example
 current = {"sales": 50000, "timestamp": "2024-01-15 10:00:00"}
 historical = [
     {"sales": 10000, "timestamp": "2024-01-15 09:00:00"},
@@ -1316,14 +1263,9 @@ print(result)
 
 ### 10. Fine-Tuning LLMs
 
-**What is Fine-Tuning?**
-Training a pre-trained LLM on domain-specific data to improve performance.
+**What is it?** Further training a pre-trained LLM on your own examples so it’s better at your task and vocabulary.
 
-**When to Fine-Tune**:
-- ✅ Domain-specific terminology
-- ✅ Specific output format
-- ✅ Better accuracy needed
-- ✅ Cost optimization (smaller model)
+**When it’s worth it:** Your domain has specific terms, you need a fixed output format, or you want better accuracy/cost with a smaller model.
 
 **Fine-Tuning Process**:
 ```python
@@ -1353,8 +1295,8 @@ response = openai.FineTuningJob.create(
     training_file="file-abc123",
     model="gpt-3.5-turbo",
     hyperparameters={
-        "n_epochs": 3,
-        "learning_rate_multiplier": 1.0
+        "n_epochs": 3,                    # Passes over the training data; more = risk overfitting
+        "learning_rate_multiplier": 1.0   # 1.0 = default; lower = gentler updates
     }
 )
 
@@ -1370,9 +1312,9 @@ response = client.chat.completions.create(
 
 ### 11. Production Deployment
 
-**Deploying AI Agents in Production**:
+**Deploying in production:** Serve the agent as a model (e.g. MLflow), expose an API, or use a Databricks serving endpoint.
 
-**1. Model Serving with MLflow**:
+**1. Model serving with MLflow**:
 ```python
 import mlflow
 import mlflow.pyfunc
@@ -1436,25 +1378,17 @@ w.serving_endpoints.create(
 
 ### 12. Monitoring & Optimization
 
-**Monitoring AI Agents**:
+**What to track:** Latency, token usage (input + output), errors, and optionally user feedback. Log sample prompts/responses for debugging.
 ```python
 import mlflow
 
-# Log metrics
 mlflow.log_metric("response_time", 1.2)
-mlflow.log_metric("token_usage", 500)
-mlflow.log_metric("user_satisfaction", 4.5)
-
-# Log prompts and responses
+mlflow.log_metric("token_usage", 500)   # Drives cost; monitor per request
 mlflow.log_text(prompt, "prompt.txt")
 mlflow.log_text(response, "response.txt")
 ```
 
-**Cost Optimization**:
-- ✅ Use smaller models when possible
-- ✅ Cache common queries
-- ✅ Limit token usage
-- ✅ Use fine-tuned models
+**Cost:** Use smaller/cheaper models where possible, cache frequent queries, set `max_tokens`, consider fine-tuned smaller models.
 
 ---
 
@@ -1466,10 +1400,9 @@ mlflow.log_text(response, "response.txt")
 
 **Answer Structure**:
 
-**1. What is RAG?**
-RAG combines retrieval (finding relevant documents) with generation (LLM creating response).
+**1. What is RAG?** Retrieve relevant docs (e.g. vector search), then generate an answer with the LLM using that as context.
 
-**2. RAG Flow**:
+**2. Flow**:
 ```
 User Query → Embed Query → Vector Search → Retrieve Context → Build Prompt → LLM Generation → Response
 ```
@@ -1523,11 +1456,7 @@ response = llm.generate(prompt)
 - **Retriever**: Finds relevant documents (top-K similarity search)
 - **LLM**: Generates response using context (e.g., GPT-4)
 
-**5. Why RAG?**
-- ✅ Reduces hallucinations (LLM makes up facts)
-- ✅ Uses up-to-date information (from vector DB)
-- ✅ Better for domain-specific knowledge
-- ✅ Grounds responses in real data
+**5. Why RAG?** Reduces hallucinations, uses your current data, and grounds answers in retrieved docs.
 
 **6. Real-World Example**:
 
@@ -1745,7 +1674,7 @@ SQL: SELECT customer_id, SUM(amount) as total_revenue FROM sales GROUP BY custom
 Question: {user_query}
 SQL:
 """
-    response = llm.generate(prompt, temperature=0.3)
+    response = llm.generate(prompt, temperature=0.3)  # Low temp for stable, correct SQL
     sql = extract_sql(response)
     return sql
 ```
@@ -1843,8 +1772,7 @@ result = sql_agent(query, spark)
 
 **Answer Structure**:
 
-**1. What are Hallucinations?**
-LLM generating false or made-up information that sounds plausible.
+**1. What are hallucinations?** The model outputs plausible-sounding but false or unsupported information.
 
 **2. Prevention Strategies**:
 
@@ -2224,23 +2152,11 @@ rag_query("What is the sales pipeline?")
 
 ## ✅ Best Practices Summary
 
-### RAG
-- ✅ Chunk documents appropriately
-- ✅ Use good embedding models
-- ✅ Filter by metadata when possible
-- ✅ Retrieve top-K relevant documents
+**RAG:** Chunk size/overlap to fit embeddings; use metadata filters; tune top_k (often 3–5).
 
-### LLMs
-- ✅ Use appropriate temperature
-- ✅ Provide clear prompts
-- ✅ Use few-shot examples
-- ✅ Validate outputs
+**LLMs:** **Temperature** low (0.2–0.3) for SQL/code/analysis; 0.7 for chat. Set **max_tokens** to control cost and length. Clear prompts + few-shot examples; validate outputs.
 
-### Vector Databases
-- ✅ Choose right dimension
-- ✅ Index appropriately
-- ✅ Monitor performance
-- ✅ Update embeddings regularly
+**Vector DBs:** Use embedding dimension that matches your model; monitor latency and index size.
 
 ---
 
