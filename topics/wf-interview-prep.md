@@ -119,12 +119,55 @@ WHERE amount < 0;
 
 ### 4. Generative AI & LLMs
 
+**Goal of this section**: Be a **code-first cheat sheet** for using OpenAI / Databricks LLaMA / LangChain – what functions you actually call, what the key params mean, and how they fit together.
+
 **Core concepts**:
 
 - **Embedding**: Map text → vector; similar text → nearby vectors.
 - **Vector DB**: Store these vectors for semantic search.
 - **RAG**: Retrieve relevant docs from vector DB, then let LLM answer using that context.
 - **Temperature**: 0–0.3 for deterministic SQL/analysis; ~0.7 for chat/explanations.
+
+#### 4.1 OpenAI – core API calls (Python)
+
+**Chat completion (GPT-4)**:
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+
+resp = client.chat.completions.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": "You are a helpful data engineering assistant."},
+        {"role": "user", "content": "Explain what a data pipeline is in 3 sentences."}
+    ],
+    temperature=0.5,   # 0.0–0.3 strict; 0.5 balanced; 0.7+ creative
+    max_tokens=200     # hard cap on reply length
+)
+
+answer = resp.choices[0].message.content
+```
+
+**Embeddings (for vector search / RAG)**:
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+
+text = "Sales pipeline processes 1M records daily from S3 to Delta."
+emb = client.embeddings.create(
+    model="text-embedding-3-small",
+    input=text
+).data[0].embedding  # list[float], length = model dimension (e.g. 1536)
+```
+
+Key points they may quiz you on:
+
+- `temperature`, `max_tokens`, and `top_p` control **randomness** and **length**.
+- Embeddings are just **vectors**; you always pair them with a **vector index** (FAISS, Chroma, Databricks Vector Search, etc.).
 
 **Simple “RAG-like” helper**:
 
@@ -167,7 +210,7 @@ If the answer is not in the context, say "I don't have that information."
 - How did you integrate LLMs into existing platforms?
   - Databricks-hosted LLaMA, CI post-deploy stages, Confluence API, etc.
 
-#### LangChain essentials (WF-relevant)
+#### 4.2 LangChain essentials (WF-relevant)
 
 **Core pieces**:
 
@@ -209,6 +252,230 @@ print(result["answer"])
 - When would you use a `Retriever` vs calling the vector store directly?
 - How do you control cost/latency in LangChain chains (e.g., fewer docs in retriever, smaller models, caching)?
 - How would you log prompts and responses (for monitoring and safety)?
+
+#### 4.3 Building LLM apps on Databricks (LLaMA) with LangChain
+
+Assume you have a Databricks **model serving endpoint** exposing a LLaMA-like chat model (e.g. `llama-doc-assistant`).
+
+**LangChain LLM wrapper (Databricks endpoint)**:
+
+```python
+from langchain.llms import Databricks
+
+llm = Databricks(
+    endpoint_name="llama-doc-assistant",
+    model_kwargs={
+        "temperature": 0.2,   # deterministic for analysis/docs
+        "max_tokens": 800
+    },
+)
+```
+
+**Strict prompt for architecture documentation**:
+
+```python
+from textwrap import dedent
+
+def build_arch_prompt(dag_text: str, yaml_text: str, ddl_text: str) -> str:
+    return dedent(f"""
+    You are a senior data platform architect.
+
+    INPUT ARTIFACTS:
+    - DAG definition (PySpark / Airflow): 
+    {dag_text}
+
+    - Workflow YAML:
+    {yaml_text}
+
+    - Table DDL / schema:
+    {ddl_text}
+
+    TASK:
+    1. Describe the end-to-end data flow (source → transforms → targets).
+    2. List the main datasets and their purposes.
+    3. Highlight any data quality / lineage considerations.
+
+    HARD RULES:
+    - Only use information from the input artifacts.
+    - If something is not specified, say "Not specified in artifacts."
+    - Output must be in Markdown with the following sections:
+      ## Overview
+      ## Data Flow
+      ## Tables and Schemas
+      ## Data Quality and Lineage
+    """).strip()
+```
+
+**Call Databricks LLaMA via LangChain**:
+
+```python
+def generate_arch_doc(dag_text: str, yaml_text: str, ddl_text: str) -> str:
+    prompt = build_arch_prompt(dag_text, yaml_text, ddl_text)
+    return llm(prompt)  # returns Markdown string
+```
+
+This mirrors what you actually did: strict prompt, deterministic temperature, clear output format.
+
+#### 4.4 End-to-end: Jenkins → LLM → Confluence → Vector DB → Chatbot
+
+**1. Jenkins stage calling a Python script**
+
+```groovy
+pipeline {
+    agent any
+    stages {
+        stage('Tests') {
+            steps {
+                sh 'pytest'
+            }
+        }
+        stage('Generate & Publish Docs') {
+            environment {
+                DATABRICKS_TOKEN = credentials('db-token')
+                CONFLUENCE_USER = credentials('conf-user')
+                CONFLUENCE_TOKEN = credentials('conf-token')
+            }
+            steps {
+                sh 'python scripts/gen_arch_docs.py'
+            }
+        }
+    }
+}
+```
+
+**Key points**:
+
+- Secrets come from Jenkins credentials.
+- `gen_arch_docs.py` does: **load artifacts → call LLM → publish to Confluence → update vector DB**.
+
+**2. Python script – artifacts → LLM → Confluence**
+
+```python
+import os
+import requests
+from langchain.llms import Databricks
+
+llm = Databricks(endpoint_name="llama-doc-assistant")
+
+def load_artifacts() -> tuple[str, str, str]:
+    dag_text = open("dags/sales_etl.py").read()
+    yaml_text = open("workflows/sales_etl.yaml").read()
+    ddl_text = open("ddl/sales_tables.sql").read()
+    return dag_text, yaml_text, ddl_text
+
+def publish_to_confluence(space_key: str, title: str, body_markdown: str) -> str:
+    base_url = os.environ["CONFLUENCE_BASE_URL"]
+    user = os.environ["CONFLUENCE_USER"]
+    token = os.environ["CONFLUENCE_TOKEN"]
+
+    url = f"{base_url}/rest/api/content"
+    payload = {
+        "type": "page",
+        "title": title,
+        "space": {"key": space_key},
+        "body": {
+            "storage": {
+                "value": body_markdown,
+                "representation": "wiki"  # or "storage" depending on Confluence setup
+            }
+        }
+    }
+    resp = requests.post(url, json=payload, auth=(user, token))
+    resp.raise_for_status()
+    page_id = resp.json()["id"]
+    return page_id
+
+def main():
+    dag_text, yaml_text, ddl_text = load_artifacts()
+    doc_md = generate_arch_doc(dag_text, yaml_text, ddl_text)  # from previous section
+
+    page_id = publish_to_confluence(
+        space_key="DATA",
+        title="Sales ETL – Architecture Doc",
+        body_markdown=doc_md,
+    )
+    print(f"Published Confluence page {page_id}")
+
+    # After publish, we can send the same doc into a vector DB (next section)
+
+if __name__ == "__main__":
+    main()
+```
+
+**3. After publish: tokenize, embed, and store in a vector DB**
+
+For interview simplicity, show Chroma/FAISS; in your real project, this is Databricks Vector Search.
+
+```python
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import FAISS
+
+def index_doc(doc_id: str, title: str, body_md: str, store_path: str = "faiss_index"):
+    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    chunks = splitter.split_text(body_md)
+
+    texts = []
+    metadatas = []
+    for i, chunk in enumerate(chunks):
+        texts.append(chunk)
+        metadatas.append({"doc_id": doc_id, "title": title, "chunk": i})
+
+    embeddings = OpenAIEmbeddings()
+    store = FAISS.from_texts(texts, embedding=embeddings, metadatas=metadatas)
+
+    store.save_local(store_path)
+    return store
+```
+
+You can call `index_doc` from `main()` after successfully publishing to Confluence.
+
+**4. Final chatbot over architecture docs**
+
+```python
+from langchain.chat_models import ChatOpenAI
+from langchain.vectorstores import FAISS
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.chains import ConversationalRetrievalChain
+
+def load_store(store_path: str = "faiss_index") -> FAISS:
+    embeddings = OpenAIEmbeddings()
+    return FAISS.load_local(store_path, embeddings)
+
+def build_arch_chatbot() -> ConversationalRetrievalChain:
+    store = load_store()
+    retriever = store.as_retriever(search_kwargs={"k": 4})
+
+    llm = ChatOpenAI(model_name="gpt-4", temperature=0.2)
+
+    qa = ConversationalRetrievalChain.from_llm(
+        llm=llm,
+        retriever=retriever,
+        return_source_documents=True,
+    )
+    return qa
+
+def chat_loop():
+    qa = build_arch_chatbot()
+    history = []
+    while True:
+        q = input("Q: ").strip()
+        if not q or q.lower() in {"exit", "quit"}:
+            break
+        result = qa({"question": q, "chat_history": history})
+        print(f"A: {result['answer']}\n")
+        history.append((q, result["answer"]))
+```
+
+How to explain in interview:
+
+- Jenkins stage triggers on deploy → calls Python script.
+- Python script:
+  - Loads artifacts from Git,
+  - Calls Databricks LLaMA endpoint (strict prompt, low temperature),
+  - Publishes Markdown to Confluence,
+  - Splits the same content into chunks, embeds, and stores into a vector DB.
+- A separate service (or notebook) exposes a chatbot using LangChain `ConversationalRetrievalChain` over that vector store, so devs can query “What does the sales ETL do?” directly.
 
 ---
 
