@@ -58,6 +58,44 @@ Overall, I bring strong experience in building scalable data platforms and deliv
 
 analytics-ready datasets, while also exploring ways to enhance these systems with emerging AI capabilities.
 
+.
+.
+.
+.
+.
+..
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+.
+
 ---
 
 ## Minor edits applied (for reference)
