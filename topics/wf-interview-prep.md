@@ -1,717 +1,789 @@
-## Wells Fargo (WF) – GenAI / Data Engineering Interview Prep
+# Data Engineering Interview Prep — AWS-First, Production-Grade
 
-### 🔗 Quick Links
+Material for an **AWS shop**: **Topic 1 is AWS Glue**. **Topics 2–12** are **independent** (Python, SQL, architecture, governance, migration, orchestration) with **AWS services** where they matter.
 
-- [1. Role Positioning (WF + Nike Experience)](#1-role-positioning-wf--nike-experience)
-- [2. Python for Data Engineering](#2-python-for-data-engineering)
-- [3. SQL & Data Processing](#3-sql--data-processing)
-- [4. Generative AI & LLMs](#4-generative-ai--llms)
-- [5. CI/CD, GitHub, GitHub Actions](#5-cicd-github-github-actions)
-- [6. Workflow Orchestration (Airflow)](#6-workflow-orchestration-airflow)
-- [7. Short “Tell Me About X” Stories](#7-short-tell-me-about-x-stories)
+Each section includes **depth**, **extra examples**, and **interview angles** (what panels probe, sample framing).
 
 ---
 
-### 1. Role Positioning (WF + Nike Experience)
+## How to answer design questions (generic order)
 
-**How to position yourself for WF:**
-
-- **Core**: Python + SQL + data processing.
-- **Differentiator**: Hands-on **LLMs, Databricks, vector search, RAG, dev-productivity automation**.
-- **Deployment**: CI/CD, GitHub Actions/Jenkins, productionized agents and services.
-- **Orchestration**: Airflow for reliable workflows.
-
-**Sample “Tell me about yourself” (WF context)**:
-
-> I’m a data engineer with strong Python and SQL experience, and in my most recent role at Nike I focused heavily on applying Generative AI to data engineering problems. I built a GenAI-powered documentation automation framework integrated into CI/CD, where a post-deploy Jenkins stage extracted PySpark DAGs, YAML configs, and DDLs from Git and auto-published production-aligned architecture docs to Confluence, cutting manual documentation by about 70%. I also built a semantic documentation engine on Databricks using a hosted LLaMA model plus structured prompts to analyze Spark transformations and dependency graphs, saving ~15–20 engineering hours per sprint. Recently I’ve been integrating tools like Cursor, MCP, and Confluence to give developers in-IDE conversational access to live architecture artifacts, reducing context switching and speeding onboarding. I’d like to bring that blend of solid data engineering and GenAI automation to Wells Fargo’s data and risk platforms.
+1. **Requirements** — volume, latency, SLAs, compliance, consumers, idempotency.  
+2. **Architecture** — boundaries, environments, data zones, ownership.  
+3. **Data flow** — sources, formats, partitioning, sinks, contracts.  
+4. **AWS components** — Glue, EMR, Lambda, MWAA, Step Functions, S3, RDS, etc.  
+5. **Code / config approach** — parameters, tests, schema strategy.  
+6. **Best practices** — security, cost, observability.  
+7. **Scaling & failure** — retries, DLQ, backfill, replay.  
+8. **CI/CD** — artifacts, IaC, promotion, rollback.
 
 ---
 
-### 2. Python for Data Engineering
+# Topic 1 — AWS Glue (managed ETL)
 
-**Common questions**:
+**In one sentence:** Glue runs **PySpark/Scala** jobs (`glueetl`) and **Python shell** jobs, registers metadata in the **Glue Data Catalog**, and connects to data in **S3**, **JDBC** sources, and other AWS services.
 
-1. How do you process large files in Python efficiently?
-2. How do you structure reusable data pipeline code?
-3. How do you handle errors and logging in ETL jobs?
+### Interview angle (open with this)
 
-**Key points**:
+> “Glue gives us managed Spark without running clusters 24/7. We use the **Data Catalog** so Athena and other engines see the same tables. For heavy transforms we use **Spark jobs**; for small JDBC pulls or scripts we might use **Python shell**. We treat **raw** as immutable and use **bookmarks** or **partitions** for incremental loads.”
 
-- Stream / iterate over data (don’t load everything into memory).
-- Encapsulate logic into functions/classes for reuse and testing.
-- Use `logging`, not `print`, and surface failures clearly.
+### Components (deeper)
 
-**Simple example – streaming CSV and basic transform**:
+| Piece | Role | Example question |
+|--------|------|------------------|
+| **Data Catalog** | Hive-compatible metastore; tables/partitions | *How do Athena and Glue share metadata?* |
+| **Crawler** | Infer schema from S3 | *Why not rely on crawlers alone?* |
+| **glueetl job** | Distributed Spark | *When is Glue Spark overkill?* |
+| **pythonshell** | Single-node; modest data | *Lambda vs pythonshell?* |
+| **Connection** | JDBC + optional VPC | *How does Glue reach private RDS?* |
+| **Job bookmark** | Tracks processed files/rows for incremental runs | *What breaks bookmarks?* |
+| **Workflow / Trigger** | Schedule or chain jobs | *vs Step Functions?* |
 
-```python
-import csv
-from typing import Iterator, Dict
+### Simple scenario (walkthrough)
 
-def read_sales(path: str) -> Iterator[Dict[str, str]]:
-    with open(path, mode="r", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            yield row  # stream row by row
+**Nightly** job: read **raw** JSON under `s3://raw/events/dt=2025-04-03/`, **dedupe** on `event_id`, write **Snappy Parquet** to `s3://curated/events/` with partition `dt`, register/update table `curated.events`.
 
-def transform_sale(row: Dict[str, str]) -> Dict[str, str]:
-    amount = float(row["amount"])
-    row["amount_usd"] = f"{amount:.2f}"
-    return row
+### Second example — JDBC parallel read (interview favorite)
 
-def process_sales(input_path: str, output_path: str) -> None:
-    with open(output_path, mode="w", newline="") as f_out:
-        writer = None
-        for row in read_sales(input_path):
-            out_row = transform_sale(row)
-            if writer is None:
-                writer = csv.DictWriter(f_out, fieldnames=out_row.keys())
-                writer.writeheader()
-            writer.writerow(out_row)
-```
-
-**How to explain**:
-
-- `read_sales` streams input line by line → works for large files.
-- `transform_sale` isolates transformation → unit-testable.
-- Easy to drop this into Airflow or a CI step.
-
----
-
-### 3. SQL & Data Processing
-
-**Common questions**:
-
-1. Write a query for daily revenue by customer.
-2. How do you handle slowly changing dimensions (SCD)?
-3. How would you debug a data quality issue (e.g., negative amounts)?
-
-**Daily revenue by customer**:
-
-```sql
-SELECT
-    customer_id,
-    sale_date,
-    SUM(amount) AS daily_revenue
-FROM sales
-WHERE sale_date BETWEEN DATE '2024-01-01' AND DATE '2024-01-31'
-GROUP BY customer_id, sale_date
-ORDER BY sale_date, customer_id;
-```
-
-**Identify suspicious (negative) sales**:
-
-```sql
-SELECT
-    sale_id,
-    customer_id,
-    amount,
-    sale_date
-FROM sales
-WHERE amount < 0;
-```
-
-**How to explain**:
-
-- Mention joins, window functions, CTEs, and aggregations as standard tools.
-- Connect to GenAI work: you used such queries as inputs for LLM-based documentation or anomaly explanations.
-
----
-
-### 4. Generative AI & LLMs
-
-**Goal of this section**: Be a **code-first cheat sheet** for using OpenAI / Databricks LLaMA / LangChain – what functions you actually call, what the key params mean, and how they fit together.
-
-**Core concepts**:
-
-- **Embedding**: Map text → vector; similar text → nearby vectors.
-- **Vector DB**: Store these vectors for semantic search.
-- **RAG**: Retrieve relevant docs from vector DB, then let LLM answer using that context.
-- **Temperature**: 0–0.3 for deterministic SQL/analysis; ~0.7 for chat/explanations.
-
-#### 4.1 OpenAI – core API calls (Python)
-
-**Chat completion (GPT-4)**:
+Large **RDS** table `orders`: use **parallel JDBC** so Spark reads multiple ranges at once.
 
 ```python
-from openai import OpenAI
-
-client = OpenAI()
-
-resp = client.chat.completions.create(
-    model="gpt-4",
-    messages=[
-        {"role": "system", "content": "You are a helpful data engineering assistant."},
-        {"role": "user", "content": "Explain what a data pipeline is in 3 sentences."}
-    ],
-    temperature=0.5,   # 0.0–0.3 strict; 0.5 balanced; 0.7+ creative
-    max_tokens=200     # hard cap on reply length
-)
-
-answer = resp.choices[0].message.content
-```
-
-**Embeddings (for vector search / RAG)**:
-
-```python
-from openai import OpenAI
-
-client = OpenAI()
-
-text = "Sales pipeline processes 1M records daily from S3 to Delta."
-emb = client.embeddings.create(
-    model="text-embedding-3-small",
-    input=text
-).data[0].embedding  # list[float], length = model dimension (e.g. 1536)
-```
-
-Key points they may quiz you on:
-
-- `temperature`, `max_tokens`, and `top_p` control **randomness** and **length**.
-- Embeddings are just **vectors**; you always pair them with a **vector index** (FAISS, Chroma, Databricks Vector Search, etc.).
-
-**Simple “RAG-like” helper**:
-
-```python
-from openai import OpenAI
-
-client = OpenAI()
-
-def answer_with_context(question: str, context: str) -> str:
-    prompt = f"""You are a data engineering assistant.
-Use ONLY the context below to answer the question.
-
-Context:
-{context}
-
-Question: {question}
-
-If the answer is not in the context, say "I don't have that information."
-"""
-    resp = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.3,   # low: more factual and repeatable
-        max_tokens=400
-    )
-    return resp.choices[0].message.content
-```
-
-**How to connect to your Nike project**:
-
-- You generalized this pattern into a **semantic documentation engine** on Databricks (LLaMA model).
-- Inputs: Spark DAGs, YAML configs, DDLs, dependency graphs, schema metadata.
-- Outputs: Architecture narratives, data-flow diagrams, table-level documentation.
-- Impact: ~15–20 engineering hours saved per sprint.
-
-**Common GenAI questions**:
-
-- How do you reduce hallucinations?
-  - Use RAG, constrain prompts (“if not in context, say you don’t know”), and sometimes post-validation.
-- How did you integrate LLMs into existing platforms?
-  - Databricks-hosted LLaMA, CI post-deploy stages, Confluence API, etc.
-
-#### 4.2 LangChain essentials (WF-relevant)
-
-**Core pieces**:
-
-- `ChatOpenAI` / `ChatAnthropic`: wrap chat models (you already know how to tune `temperature`, `max_tokens`).
-- `PromptTemplate`: parameterized prompts.
-- `VectorStore` + `Retriever`: encapsulate semantic search for RAG.
-- `ConversationalRetrievalChain`: very common for chatbot-style Q&A over docs.
-
-**Tiny example – LangChain QA over in-memory docs**:
-
-```python
-from langchain.chat_models import ChatOpenAI
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.chains import ConversationalRetrievalChain
-
-docs = [
-    "Sales pipeline (sales_etl) processes 1M records daily at 2 AM.",
-    "Customer pipeline (customer_etl) runs hourly and loads data into Delta."
-]
-
-emb = OpenAIEmbeddings()
-store = FAISS.from_texts(docs, embedding=emb)
-
-llm = ChatOpenAI(model_name="gpt-4", temperature=0.2)  # low temp for factual answers
-
-qa = ConversationalRetrievalChain.from_llm(
-    llm=llm,
-    retriever=store.as_retriever(search_kwargs={"k": 2})
-)
-
-chat_history = []
-result = qa({"question": "When does the sales pipeline run?", "chat_history": chat_history})
-print(result["answer"])
-```
-
-**Quick LangChain interview checks**:
-
-- When would you use a `Retriever` vs calling the vector store directly?
-- How do you control cost/latency in LangChain chains (e.g., fewer docs in retriever, smaller models, caching)?
-- How would you log prompts and responses (for monitoring and safety)?
-
-#### 4.3 Building LLM apps on Databricks (LLaMA) with LangChain
-
-Assume you have a Databricks **model serving endpoint** exposing a LLaMA-like chat model (e.g. `llama-doc-assistant`).
-
-**LangChain LLM wrapper (Databricks endpoint)**:
-
-```python
-from langchain.llms import Databricks
-
-llm = Databricks(
-    endpoint_name="llama-doc-assistant",
-    model_kwargs={
-        "temperature": 0.2,   # deterministic for analysis/docs
-        "max_tokens": 800
-    },
+# PySpark — concept Glue uses under the hood for parallel reads
+df = (
+    spark.read.format("jdbc")
+    .option("url", jdbc_url)
+    .option("dbtable", "orders")
+    .option("user", user)
+    .option("password", password)
+    .option("driver", "org.postgresql.Driver")
+    .option("partitionColumn", "order_id")  # numeric, evenly distributed ideal
+    .option("lowerBound", "1")
+    .option("upperBound", "50000000")
+    .option("numPartitions", "16")
+    .load()
 )
 ```
 
-**Strict prompt for architecture documentation**:
+**Talking point:** Pick a **partition column** that is **indexed** and roughly uniform; skewed keys → skewed tasks.
+
+### Job bookmarks (when they work / break)
+
+- **Work well:** Append-only S3 layout; new files or new folders per run.  
+- **Break / surprise:** **Overwrite** same object key; **compaction** that rewrites paths the bookmark already “finished”; **late files** dropped into old `dt` prefix (you may need **watermark + reprocess** window).  
+- **Late data:** Mention **idempotent** merge by key + **partition** re-run for specific `dt`, not only bookmark.
+
+### Glue vs EMR (soundbite)
+
+| Glue | EMR / EMR Serverless |
+|------|----------------------|
+| Less ops; good default for catalog-integrated batch | Custom AMIs, long-lived clusters, deeper Spark tuning |
+| Glue Flex for cheaper windows | More knobs for exotic libs |
+
+Say: *“We’d pick EMR if we need a **custom runtime**, **long-running** cluster, or **very specific** Spark tuning; Glue when we want **managed** jobs tied to the **Catalog** and **S3**.”*
+
+### Production issues (expand)
+
+- **Crawler drift** — string → bigint flip; **mitigation:** define tables via **DDL** / **Terraform**, use crawler for **discovery** only.  
+- **Tiny files** — `repartition(n)` or `coalesce(n)` before write; target **~128–256 MB** objects.  
+- **Wide IAM** — scope to `bucket/prefix` + **KMS** key for that bucket.  
+- **Spark defaults** — e.g. `shuffle.partitions` may be wrong for your data size → tune with metrics.
+
+### Optimizations (checklist)
+
+- Partition **early**; **predicate pushdown** on `dt`, `region`.  
+- **Column pruning** — select columns explicitly.  
+- **Broadcast** small dimensions when join stats support it (watch memory).  
+- **Glue 4.x** — align with supported Spark features; validate **connectors**.  
+- **Cost** — Glue Flex, bookmarks, **avoid** full-table scans when incremental suffices.
+
+### Code — Glue entry pattern (bookmarks + args)
 
 ```python
-from textwrap import dedent
-
-def build_arch_prompt(dag_text: str, yaml_text: str, ddl_text: str) -> str:
-    return dedent(f"""
-    You are a senior data platform architect.
-
-    INPUT ARTIFACTS:
-    - DAG definition (PySpark / Airflow): 
-    {dag_text}
-
-    - Workflow YAML:
-    {yaml_text}
-
-    - Table DDL / schema:
-    {ddl_text}
-
-    TASK:
-    1. Describe the end-to-end data flow (source → transforms → targets).
-    2. List the main datasets and their purposes.
-    3. Highlight any data quality / lineage considerations.
-
-    HARD RULES:
-    - Only use information from the input artifacts.
-    - If something is not specified, say "Not specified in artifacts."
-    - Output must be in Markdown with the following sections:
-      ## Overview
-      ## Data Flow
-      ## Tables and Schemas
-      ## Data Quality and Lineage
-    """).strip()
-```
-
-**Call Databricks LLaMA via LangChain**:
-
-```python
-def generate_arch_doc(dag_text: str, yaml_text: str, ddl_text: str) -> str:
-    prompt = build_arch_prompt(dag_text, yaml_text, ddl_text)
-    return llm(prompt)  # returns Markdown string
-```
-
-This mirrors what you actually did: strict prompt, deterministic temperature, clear output format.
-
-#### 4.4 End-to-end: Jenkins → LLM → Confluence → Vector DB → Chatbot
-
-**1. Jenkins stage calling a Python script**
-
-```groovy
-pipeline {
-    agent any
-    stages {
-        stage('Tests') {
-            steps {
-                sh 'pytest'
-            }
-        }
-        stage('Generate & Publish Docs') {
-            environment {
-                DATABRICKS_TOKEN = credentials('db-token')
-                CONFLUENCE_USER = credentials('conf-user')
-                CONFLUENCE_TOKEN = credentials('conf-token')
-            }
-            steps {
-                sh 'python scripts/gen_arch_docs.py'
-            }
-        }
-    }
-}
-```
-
-**Key points**:
-
-- Secrets come from Jenkins credentials.
-- `gen_arch_docs.py` does: **load artifacts → call LLM → publish to Confluence → update vector DB**.
-
-**2. Python script – artifacts → LLM → Confluence**
-
-```python
-import os
-import requests
-from langchain.llms import Databricks
-
-llm = Databricks(endpoint_name="llama-doc-assistant")
-
-def load_artifacts() -> tuple[str, str, str]:
-    dag_text = open("dags/sales_etl.py").read()
-    yaml_text = open("workflows/sales_etl.yaml").read()
-    ddl_text = open("ddl/sales_tables.sql").read()
-    return dag_text, yaml_text, ddl_text
-
-def publish_to_confluence(space_key: str, title: str, body_markdown: str) -> str:
-    base_url = os.environ["CONFLUENCE_BASE_URL"]
-    user = os.environ["CONFLUENCE_USER"]
-    token = os.environ["CONFLUENCE_TOKEN"]
-
-    url = f"{base_url}/rest/api/content"
-    payload = {
-        "type": "page",
-        "title": title,
-        "space": {"key": space_key},
-        "body": {
-            "storage": {
-                "value": body_markdown,
-                "representation": "wiki"  # or "storage" depending on Confluence setup
-            }
-        }
-    }
-    resp = requests.post(url, json=payload, auth=(user, token))
-    resp.raise_for_status()
-    page_id = resp.json()["id"]
-    return page_id
+from awsglue.context import GlueContext
+from awsglue.job import Job
+from pyspark.context import SparkContext
 
 def main():
-    dag_text, yaml_text, ddl_text = load_artifacts()
-    doc_md = generate_arch_doc(dag_text, yaml_text, ddl_text)  # from previous section
-
-    page_id = publish_to_confluence(
-        space_key="DATA",
-        title="Sales ETL – Architecture Doc",
-        body_markdown=doc_md,
+    sc = SparkContext()
+    glueContext = GlueContext(sc)
+    spark = glueContext.spark_session
+    job = Job(glueContext)
+    args = glueContext.getResolvedOptions(
+        ["JOB_NAME", "SOURCE_PATH", "TARGET_PATH", "PROCESS_DATE"],
     )
-    print(f"Published Confluence page {page_id}")
+    job.init(args["JOB_NAME"], args)
 
-    # After publish, we can send the same doc into a vector DB (next section)
+    # Enable job bookmark in job definition (--job-bookmark-option job-bookmark-enable)
+    df = spark.read.json(f"{args['SOURCE_PATH']}/dt={args['PROCESS_DATE']}/")
+    out = df.filter("event_id IS NOT NULL").dropDuplicates(["event_id"])
+    out.write.mode("overwrite").partitionBy("dt").parquet(args["TARGET_PATH"])
+
+    job.commit()
 
 if __name__ == "__main__":
     main()
 ```
 
-**3. After publish: tokenize, embed, and store in a vector DB**
+### Cross-questions (with angles)
 
-For interview simplicity, show Chroma/FAISS; in your real project, this is Databricks Vector Search.
-
-```python
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
-
-def index_doc(doc_id: str, title: str, body_md: str, store_path: str = "faiss_index"):
-    splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
-    chunks = splitter.split_text(body_md)
-
-    texts = []
-    metadatas = []
-    for i, chunk in enumerate(chunks):
-        texts.append(chunk)
-        metadatas.append({"doc_id": doc_id, "title": title, "chunk": i})
-
-    embeddings = OpenAIEmbeddings()
-    store = FAISS.from_texts(texts, embedding=embeddings, metadatas=metadatas)
-
-    store.save_local(store_path)
-    return store
-```
-
-You can call `index_doc` from `main()` after successfully publishing to Confluence.
-
-**4. Final chatbot over architecture docs**
-
-```python
-from langchain.chat_models import ChatOpenAI
-from langchain.vectorstores import FAISS
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.chains import ConversationalRetrievalChain
-
-def load_store(store_path: str = "faiss_index") -> FAISS:
-    embeddings = OpenAIEmbeddings()
-    return FAISS.load_local(store_path, embeddings)
-
-def build_arch_chatbot() -> ConversationalRetrievalChain:
-    store = load_store()
-    retriever = store.as_retriever(search_kwargs={"k": 4})
-
-    llm = ChatOpenAI(model_name="gpt-4", temperature=0.2)
-
-    qa = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=retriever,
-        return_source_documents=True,
-    )
-    return qa
-
-def chat_loop():
-    qa = build_arch_chatbot()
-    history = []
-    while True:
-        q = input("Q: ").strip()
-        if not q or q.lower() in {"exit", "quit"}:
-            break
-        result = qa({"question": q, "chat_history": history})
-        print(f"A: {result['answer']}\n")
-        history.append((q, result["answer"]))
-```
-
-How to explain in interview:
-
-- Jenkins stage triggers on deploy → calls Python script.
-- Python script:
-  - Loads artifacts from Git,
-  - Calls Databricks LLaMA endpoint (strict prompt, low temperature),
-  - Publishes Markdown to Confluence,
-  - Splits the same content into chunks, embeds, and stores into a vector DB.
-- A separate service (or notebook) exposes a chatbot using LangChain `ConversationalRetrievalChain` over that vector store, so devs can query “What does the sales ETL do?” directly.
+- **EMR vs Glue?** — Control vs managed; catalog integration; team skills.  
+- **Bookmarks + late data?** — Bookmarks aren’t a **business** late-arrival policy; add **reprocessing** by partition.  
+- **Schema drift?** — Explicit schema, **registry**, CI on DDL, **merge** with care.  
+- **VPC?** — Glue **connection** + **subnet** + **security groups**; S3 via **VPC endpoint** or NAT; **least privilege** IAM.
 
 ---
 
-### 5. CI/CD, GitHub, GitHub Actions
+# Topic 2 — ETL pipeline design & optimization (Python, production-grade)
 
-You’ve already done this with Jenkins; at WF they may ask about GitHub Actions specifically.
+**In one sentence:** Treat ETL as **staged** pipelines with **clear contracts**, **idempotent** writes, **observability**, and **right-sized** compute (not every problem is Spark).
 
-**Example GitHub Actions workflow (tests + GenAI docs)**:
+### Interview angle
 
-```yaml
-name: ci-pipeline
+> “I separate **extract**, **transform**, **load** into testable units. **Raw** is immutable; **curated** applies business rules. I make batches **idempotent** by partition or primary key so **retries** don’t double-count. I measure **freshness** and **row counts**, not just ‘job succeeded’.”
 
-on:
-  push:
-    branches: [ main ]
+### Medallion-style layers (talk through)
 
-jobs:
-  test-and-docs:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+| Layer | Holds | Typical rule |
+|--------|--------|----------------|
+| **Bronze / Raw** | As landed; append-only | No destructive edits |
+| **Silver / Curated** | Cleaned, conformed types | Dedupe, standard keys |
+| **Gold / Serving** | Aggregates, wide marts | BI / API contracts |
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+### Simple scenario
 
-      - name: Install deps
-        run: |
-          pip install -r requirements.txt
+**Extract:** Partner drops CSV to S3. **Transform:** Validate rows, map to canonical schema. **Load:** Upsert into **curated** Parquet by `(business_key, dt)`.
 
-      - name: Run tests
-        run: pytest
+### Idempotency (examples interviewers love)
 
-      - name: Generate docs with LLM
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          python scripts/generate_docs.py
+**Same batch run twice** should not duplicate facts.
+
+1. **Partition overwrite:** `INSERT OVERWRITE` / Spark `mode("overwrite")` for **one** `dt` partition only.  
+2. **Merge / upsert:** `MERGE INTO` (warehouse) keyed by `id`.  
+3. **Append with dedupe:** Insert to staging → `MERGE` to target, or `dropDuplicates` on **natural key** before append (know your **late-arriving** rules).
+
+```python
+# Illustrative: deterministic row key for dedupe in batch
+def natural_key(row: dict) -> str:
+    return f"{row['order_id']}|{row['line_id']}|{row['dt']}"
 ```
 
-**How to explain**:
+### Production issues
 
-- Triggers on push to `main`.
-- Runs **unit tests** and then a **GenAI doc generation** step.
-- Secrets (API keys) are stored in **GitHub Secrets**.
-- Map this back to your Jenkins-based post-deploy documentation framework.
+- **Monolith script** — can’t unit test; **split** `extract.py` / `transforms.py` / `load.py` (or packages).  
+- **Silent schema change** — add **contract tests** on sample files in CI.  
+- **Config in Git** wrong for prod — use **SSM** / **Secrets Manager** + **env-specific** buckets from args.
 
-**Typical question**:
+### Optimizations
 
-- “Describe a CI/CD pipeline you built around LLMs or data pipelines.”
+- **Pure functions** for transforms → **pytest** without Spark.  
+- **Right engine:** Lambda for MB-scale; **Fargate** for medium; **Glue/EMR** for TB+.  
+- **Observability:** emit **metrics** (`rows_in`, `rows_out`, `null_rate`) to CloudWatch.
 
-Answer with your Nike story and then mention how you’d **port that concept to GitHub Actions** at WF.
+### Code — structure + testable transform
 
-**Git – key points & quick questions**:
+```python
+# transforms.py — pure, easy to test
+def normalize_email(v: str | None) -> str | None:
+    if not v:
+        return None
+    return v.strip().lower()
 
-- Always mention: branching strategy (feature branches, PRs), code reviews, commit hygiene, tagging releases.
-- Comfortable with: `clone`, `pull`, `push`, `branch`, `merge`, resolving basic conflicts.
-
-Example interview questions:
-
-- How do you handle a bad commit that already went to `main`?
-- How do you keep long-lived feature branches in sync with `main`?
-- How do you structure commits so it’s easy to debug production issues?
-
-**Jenkins – quick summary & sample**:
-
-- Jenkins = CI/CD server; uses jobs or pipelines (often scripted in Groovy).
-- You extended Jenkins with a **post-deploy stage** that called LLMs and updated Confluence.
-
-Very small declarative pipeline sketch:
-
-```groovy
-pipeline {
-    agent any
-    stages {
-        stage('Build & Test') {
-            steps {
-                sh 'pytest'
-            }
-        }
-        stage('Post-deploy Docs') {
-            steps {
-                sh 'python scripts/gen_arch_docs.py'
-            }
-        }
+def enrich_row(raw: dict, process_date: str) -> dict:
+    return {
+        "user_id": raw["user_id"],
+        "email": normalize_email(raw.get("email")),
+        "dt": process_date,
     }
-}
 ```
-
-Typical questions:
-
-- How do you pass secrets (API keys) into Jenkins/GitHub Actions safely?
-- Where would you put a GenAI doc step – before deploy (preview) or after deploy (source of truth)?
-- How do you debug a failed pipeline stage?
-
----
-
-### 6. Workflow Orchestration (Airflow)
-
-**Simple explanation**:
-
-- Airflow is an **orchestration** tool, not a compute engine.
-- You define **DAGs** of tasks with explicit dependencies.
-- Good for retries, alerts, SLAs, backfills.
-
-**Basic Airflow DAG example**:
 
 ```python
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from datetime import datetime
-
-def extract():
-    print("Extracting data from S3...")
-
-def transform():
-    print("Running PySpark job or SQL transforms...")
-
-def load():
-    print("Loading into Delta / warehouse...")
-
-with DAG(
-    dag_id="sales_etl",
-    start_date=datetime(2024, 1, 1),
-    schedule_interval="@daily",
-    catchup=False
-) as dag:
-    t_extract = PythonOperator(task_id="extract", python_callable=extract)
-    t_transform = PythonOperator(task_id="transform", python_callable=transform)
-    t_load = PythonOperator(task_id="load", python_callable=load)
-
-    t_extract >> t_transform >> t_load
+# test_transforms.py
+def test_normalize_email():
+    assert normalize_email("  A@B.COM ") == "a@b.com"
+    assert normalize_email(None) is None
 ```
 
-**Extended Airflow example – operators, XCom, and explanation**:
+### Cross-questions
+
+- **Idempotent daily batch?** — Overwrite partition `dt` or merge on **business key**; **watermark** optional.  
+- **Quality before or after curated?** — **Light** checks at ingest (reject poison); **heavy** rules on **curated** before **gold**.  
+- **Version logic vs data?** — Git tags for **code**; **partition** + **snapshot** tables for **data** history.
+
+---
+
+# Topic 3 — Parallelism: multiprocessing vs threading; errors, logging, retries
+
+**In one sentence:** **CPU-bound** Python → **multiprocessing** (or native libs); **I/O-bound** → **threads** or **asyncio**; **retries** need **limits**, **jitter**, and **idempotency** for side effects.
+
+### Interview angle
+
+> “The **GIL** means threads don’t parallelize CPU-heavy Python bytecode. For parallel CPU work I use **multiprocessing** or **push work to Spark / native code**. For S3 and HTTP I use **thread pools** or **async** with bounded concurrency. Retries use **exponential backoff with jitter** so we don’t stampede the API.”
+
+### GIL (short)
+
+One thread holds the **Global Interpreter Lock** for CPU work in CPython → multiple threads **interleave**, not parallelize CPU. **I/O** releases the GIL, so threads help **network/disk** wait time.
+
+### When to use what
+
+| Workload | Typical choice |
+|----------|----------------|
+| Many HTTP downloads | `ThreadPoolExecutor`, `asyncio`, or Lambda fan-out |
+| Heavy pandas/numpy CPU on chunks | `ProcessPoolExecutor` or Spark |
+| boto3 S3 copy many keys | Thread pool + tuned **TransferConfig** |
+
+### Simple scenario
+
+**10k** presigned URLs → download → upload to S3: **thread pool** (I/O bound). **Resize images** with Pillow on large images: **process pool** or **offload** to batch.
+
+### Retries + duplicate side effects
+
+**Problem:** Retry delivers **two** S3 writes or **two** API `POST`s.
+
+**Mitigations:** **Idempotency keys** (API supports `Idempotency-Key` header); **write** to deterministic S3 key `.../order_id=123/part-000.parquet` and **overwrite**; **dedupe** downstream; **SQS FIFO** + dedup window where applicable.
+
+### Production issues
+
+- **Threads + CPU pandas** — no speedup; use **vectorization** or **Spark**.  
+- **Infinite retry** — cap attempts; **DLQ** after threshold.  
+- **Unstructured logs** — use **JSON** + `run_id` for CloudWatch **metric filters**.
+
+### Code — ThreadPoolExecutor + bounded workers
 
 ```python
-from airflow import DAG
-from airflow.operators.python import PythonOperator
-from airflow.operators.bash import BashOperator
-from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-def extract(**context):
-    rows = ["r1", "r2"]  # pretend we read from S3
-    # Push to XCom so downstream tasks can pull it
-    context["ti"].xcom_push(key="rows", value=rows)
+def download_one(client, bucket: str, key: str) -> str:
+    # ... return etag or version id
+    return "ok"
 
-def transform(**context):
-    rows = context["ti"].xcom_pull(key="rows", task_ids="extract")
-    cleaned = [r.upper() for r in rows]
-    context["ti"].xcom_push(key="cleaned", value=cleaned)
-
-def load(**context):
-    cleaned = context["ti"].xcom_pull(key="cleaned", task_ids="transform")
-    print(f"Loading {cleaned} into target table...")
-
-with DAG(
-    dag_id="sales_etl_xcom",
-    start_date=datetime(2024, 1, 1),
-    schedule_interval="@daily",
-    catchup=False
-) as dag:
-    t_extract = PythonOperator(
-        task_id="extract",
-        python_callable=extract,
-        provide_context=True,
-    )
-
-    t_transform = PythonOperator(
-        task_id="transform",
-        python_callable=transform,
-        provide_context=True,
-    )
-
-    t_load = PythonOperator(
-        task_id="load",
-        python_callable=load,
-        provide_context=True,
-    )
-
-    t_notify = BashOperator(
-        task_id="notify",
-        bash_command='echo "sales_etl_xcom completed successfully"'
-    )
-
-    t_extract >> t_transform >> t_load >> t_notify
+def download_many(client, bucket: str, keys: list[str], max_workers: int = 16):
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futs = {ex.submit(download_one, client, bucket, k): k for k in keys}
+        for fut in as_completed(futs):
+            k = futs[fut]
+            fut.result()  # raises if failed
 ```
 
-How to explain:
+### Code — structured logging (JSON-friendly fields)
 
-- `PythonOperator` runs Python callables; `BashOperator` runs shell.
-- `XCom` is used to pass **small pieces of data** between tasks (`xcom_push` / `xcom_pull`).
-- Data flow: `extract` → `transform` → `load` → `notify`.
+```python
+import logging
+import json
 
-Quick Airflow interview questions:
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "level": record.levelname,
+            "msg": record.getMessage(),
+            "logger": record.name,
+        }
+        if hasattr(record, "extra_fields"):
+            payload.update(record.extra_fields)
+        return json.dumps(payload)
 
-- When would you use XCom vs writing to storage (S3, DB)?
-- How do you handle retries and alerting for failing tasks?
-- How do you manage Airflow connections and secrets?
-- How would you document DAGs and make them discoverable (tie to your LLM docs story)?
+# logger.addHandler(handler); record with extra_fields={'run_id': '...'}
+```
 
-**How to tie this to LLM work**:
+### Cross-questions
 
-- Your documentation engine can read DAG definitions and logs.
-- LLM generates human-readable pipeline overviews and failure summaries.
-
----
-
-### 7. Short “Tell Me About X” Stories
-
-Use these as quick answers.
-
-**Python**:
-
-> I’ve built multiple data pipelines in Python, including streaming large CSV and JSON logs using iterators so we don’t blow up memory, and wrapping logic into reusable functions and modules. In my GenAI projects I used Python to orchestrate calls to Databricks-hosted LLaMA models, manage embeddings and vector indexes, and integrate with Confluence and Jenkins to automate documentation and developer workflows.
-
-**SQL**:
-
-> I’m comfortable with complex joins, window functions, CTEs, and aggregate queries. I’ve used SQL for daily and weekly revenue reports, cohort analysis, and for data quality checks like detecting negative or inconsistent values. Some of those queries fed directly into our GenAI documentation engine, where an LLM would explain what a pipeline or view does in clear business language.
-
-**LLMs / GenAI**:
-
-> The most impactful GenAI system I built was a documentation automation framework. After each deployment, a CI stage extracted PySpark DAGs, YAML workflow configs, and DDLs from Git. A Databricks-hosted LLaMA model with structured prompts generated architecture narratives and data-flow diagrams, which were auto-published to Confluence. That cut manual documentation work by about 70% and saved roughly 15–20 engineer-hours per sprint.
-
-**CI/CD**:
-
-> I treat data and ML systems like software: code in Git, automated tests, and pipelines that build, test, and deploy artifacts. In my last role I extended the pipeline with a post-deploy LLM stage that generated or updated documentation. At Wells Fargo I’d use a similar approach with GitHub Actions and the bank’s deployment platforms, making sure all GenAI steps are auditable and safe.
-
-**Airflow / Orchestration**:
-
-> I use orchestration tools like Airflow to model end-to-end ETL workflows: extract from sources, transform via Spark or SQL, and load into a warehouse or data lake. I rely on DAGs, retries, and alerting for reliability. A natural extension is letting an LLM consume DAG metadata and failure logs to generate human-readable explanations for on-call engineers and platform owners.
+- **Why threads don’t speed CPU Python?** — **GIL**; use **processes** or **native/Spark**.  
+- **Lambda vs EC2 job?** — **Volume**, **duration**, **memory**, **VPC** cold start; Lambda for **short** parallel **shards**; **long** unified job on **Batch/Fargate/EMR**.  
+- **Duplicate retry?** — **Idempotent** keys, **deterministic** writes, **merge** semantics.
 
 ---
 
-This doc is meant as a **fast revision sheet** for WF interviews: skim sections before the call, and reuse code snippets and stories as structured answers.
+# Topic 4 — API ingestion & file processing
 
+**In one sentence:** APIs need **respect for rate limits**, **pagination**, **checkpoints**, and **secrets rotation**; files need **size limits**, **format validation**, and **malware** process where policy requires.
 
+### Interview angle
+
+> “I treat the API as an **unreliable** dependency: **backoff**, **circuit breaker** mindset, **checkpoint** in DynamoDB so we can resume. For files I **land raw** to S3, **scan** if required, then **parse** in a job that can scale.”
+
+### AWS angle
+
+- **API Gateway + Lambda** — sync HTTP; **SQS** to absorb spikes.  
+- **AppFlow** — Salesforce, Slack, etc. → S3 (low code when fit).  
+- **S3** — landing; **EventBridge** / **notifications** trigger **Lambda** or **Step Functions**.  
+- **Transfer Family** — SFTP/FTPS into S3.  
+- **Secrets Manager** — rotate DB/API secrets; **IAM roles** for AWS APIs.
+
+### Pagination patterns
+
+| Style | Pros | Cons |
+|--------|------|------|
+| **Offset/limit** | Simple | Slow/deep pages; **inconsistent** if data shifts |
+| **Cursor / keyset** | Stable for live feeds | Store **cursor** per shard |
+| **Time windows** | Good for logs | Clock skew; **overlap** windows for safety |
+
+```python
+# Cursor pagination (sketch)
+def iter_all(base_url: str, headers: dict, start: str | None = None):
+    cursor = start
+    while True:
+        r = requests.get(base_url, headers=headers, params={"cursor": cursor}, timeout=60)
+        r.raise_for_status()
+        body = r.json()
+        for item in body["items"]:
+            yield item
+        cursor = body.get("next_cursor")
+        if not cursor:
+            break
+```
+
+### Checkpoint in DynamoDB (concept)
+
+```text
+PK: ingestion_name#shard_id
+SK: CHECKPOINT
+attrs: last_cursor, last_success_ts, rows_ingested
+```
+
+**Interview:** *“On failure we **don’t** restart from zero; we **resume** from `last_cursor`.”*
+
+### File processing
+
+- **Stream** large files — don’t `read()` entire file in Lambda if it can exceed memory.  
+- **CSV** — delimiter/quote issues; **bad rows** to quarantine.  
+- **Zip bombs** — size caps, **scan** in isolated service.  
+- **Avro/Parquet** — schema from **registry** / **Glue**.
+
+### Production issues
+
+- **429** — respect **Retry-After**; **reduce** `max_workers`.  
+- **Duplicate pages** — **idempotent** sink by natural key.  
+- **Lambda 15 min** — **Step Functions** loop + **checkpoint**, or **ECS** worker.
+
+### Cross-questions
+
+- **Schema change?** — **Additive** columns; **registry**; **quarantine** unknown fields.  
+- **Long pagination?** — **Step Functions** state machine + **Lambda** steps; or **ECS** long runner.  
+- **Secrets?** — **Secrets Manager** + **IAM**; never in env vars in repo.
+
+---
+
+# Topic 5 — Data validation & schema enforcement
+
+**In one sentence:** Enforce **contracts** at boundaries: **row** validation (types), **dataset** checks (row counts, null %), and **evolution** rules (additive vs breaking).
+
+### Interview angle
+
+> “**Row-level** validation catches bad payloads early. **Aggregate** checks catch **silent** failures—zero rows, 50% drop in volume. I separate **fatal** (fail job) from **quarantine** (bad records to DLQ bucket/prefix).”
+
+### AWS angle
+
+- **Glue Data Quality** — declarative rules in jobs.  
+- **Schema Registry** — compatibility **BACKWARD** for consumers.  
+- **Lake Formation** — **access**, not row content validation.
+
+### Validation tiers
+
+| Tier | Example | Action |
+|------|---------|--------|
+| Row | `amount >= 0`, UUID format | Drop row or quarantine |
+| Batch | `rows > 0`, `error_rate < 1%` | Fail job, page on-call |
+| Cross-batch | vs yesterday’s count ± threshold | Alert only |
+
+### Pydantic + batch stats
+
+```python
+from pydantic import BaseModel, Field, ValidationError
+from uuid import UUID
+
+class Event(BaseModel):
+    event_id: UUID
+    amount: float = Field(ge=0)
+
+def validate_batch(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    good, bad = [], []
+    for r in rows:
+        try:
+            good.append(Event.model_validate(r).model_dump())
+        except ValidationError:
+            bad.append(r)
+    return good, bad
+```
+
+### Schema evolution (say this clearly)
+
+- **Backward compatible:** New **optional** column; old readers ignore.  
+- **Breaking:** Rename column, change `int` → `string` without migration — coordinate **consumers**.
+
+### Production issues
+
+- **Validate only in BI** — too late.  
+- **Brittle rules** — `len(email) > 3` rejects valid edge cases.  
+- **0 rows green** — always assert **min row count** or **freshness**.
+
+### Cross-questions
+
+- **Backward compatible example?** — Add `promo_code` optional; writers populate; old Athena queries unchanged.  
+- **CI for validators?** — **pytest** with **golden** bad/good JSON fixtures.  
+- **Quarantine vs fail?** — **Quarantine** when **partial** bad data expected; **fail** when **batch** integrity required (financial close).
+
+---
+
+# Topic 6 — Complex joins, window functions, CTEs
+
+**In one sentence:** **CTEs** structure readable SQL; **windows** avoid **self-joins** for rankings and running metrics; **join** hygiene prevents **Cartesian** explosions.
+
+### Interview angle
+
+> “I **filter early** in CTEs. For **windows**, I always set **PARTITION BY** deliberately—without it, the window is over the whole table. I know **`ROW_NUMBER`** vs **`RANK`** for dedupe vs ties.”
+
+### CTE example — clean steps
+
+```sql
+WITH daily AS (
+  SELECT customer_id, dt, SUM(amount) AS revenue
+  FROM curated.orders
+  WHERE dt BETWEEN DATE '2025-04-01' AND DATE '2025-04-07'
+  GROUP BY 1, 2
+),
+ranked AS (
+  SELECT
+    customer_id,
+    dt,
+    revenue,
+    RANK() OVER (PARTITION BY dt ORDER BY revenue DESC) AS rev_rank
+  FROM daily
+)
+SELECT * FROM ranked WHERE rev_rank <= 10;
+```
+
+### Window functions — differences (memorize)
+
+| Function | Behavior |
+|----------|----------|
+| `ROW_NUMBER()` | Unique 1,2,3… per partition; arbitrary tie break |
+| `RANK()` | Ties get same rank; **gaps** after ties |
+| `DENSE_RANK()` | Ties same rank; **no gaps** |
+| `LAG(col,1)` / `LEAD` | Prior/next row in partition order |
+
+### Anti-join / not exists pattern
+
+“Customers who **never** ordered product X”:
+
+```sql
+SELECT c.customer_id
+FROM curated.customers c
+LEFT JOIN curated.orders o
+  ON c.customer_id = o.customer_id
+ AND o.product_id = 'X'
+WHERE o.order_id IS NULL;
+```
+
+Or: `WHERE NOT EXISTS (SELECT 1 FROM orders o WHERE ...)`.
+
+### Sessionization (concept)
+
+**Gap > 30 min** between events → new session: cumulative sum of “new session” flags (classic interview pattern).
+
+```sql
+WITH ordered AS (
+  SELECT user_id, event_ts,
+    LAG(event_ts) OVER (PARTITION BY user_id ORDER BY event_ts) AS prev_ts
+  FROM curated.events
+  WHERE dt = DATE '2025-04-01'
+),
+flags AS (
+  SELECT *,
+    CASE WHEN prev_ts IS NULL OR event_ts > prev_ts + INTERVAL '30' MINUTE
+         THEN 1 ELSE 0 END AS new_session
+  FROM ordered
+)
+SELECT user_id, event_ts,
+  SUM(new_session) OVER (PARTITION BY user_id ORDER BY event_ts) AS session_id
+FROM flags;
+```
+
+### Athena vs Redshift (joins)
+
+- **Athena:** Pay per **data scanned** → **partition** + **columnar** + **limit columns**.  
+- **Redshift:** **DISTKEY** on large fact to align with big dimension; **SORTKEY** for filter columns.
+
+### Cross-questions
+
+- **ROW_NUMBER vs RANK?** — Dedupe use **`ROW_NUMBER() ... WHERE rn=1`**; leaderboards with ties use **RANK**.  
+- **Athena join cost?** — **Scan**-driven; **partition** both sides if possible.
+
+---
+
+# Topic 7 — Indexing strategy & performance tuning
+
+**In one sentence:** **OLTP** indexes speed point lookups; **analytics** systems use **distribution**, **sort order**, **partitioning**, and **columnar** layout—not “index everything.”
+
+### Interview angle
+
+> “On **Postgres/RDS** I’d verify with **`EXPLAIN (ANALYZE, BUFFERS)`** and add **composite** indexes matching **filter + order** columns. On **Redshift** I think **DISTKEY** and **SORTKEY**, not B-tree indexes. On **Athena** there are **no** row indexes—only **partition pruning** and **file format**.”
+
+### RDS / Aurora (example)
+
+Query: `WHERE status = 'OPEN' AND created_at > '2025-04-01' ORDER BY created_at`.
+
+- Candidate index: `(status, created_at)` **or** partial index `WHERE status = 'OPEN'` if highly selective.
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders
+WHERE status = 'OPEN' AND created_at > TIMESTAMP '2025-04-01'
+ORDER BY created_at
+LIMIT 100;
+```
+
+**Watch:** **Write** amplification and **autovacuum** on churny tables.
+
+### Redshift (concept)
+
+- **DISTKEY** on large fact’s **join key** to **dimension** → **co-located** joins.  
+- **SORTKEY** on **filter** columns (e.g. `dt`) → **zone map** pruning.  
+- **Bad:** Random **DISTKEY** on high-cardinality UUID → **no** co-location.
+
+### DynamoDB (“indexing”)
+
+Access patterns drive **PK/SK**; **GSI** for alternate lookups. **Avoid** hot partitions (uneven key distribution).
+
+### Athena
+
+- **Partition** `dt`, `hour` if queries always filter.  
+- **Parquet** + **column projection**; avoid `SELECT *`.
+
+### Production issues
+
+- **Too many indexes** — slow writes, planner confusion.  
+- **Redshift** — **wrong** DISTKEY → massive **network** shuffle.  
+- **Missing** `ANALYZE** / **stats** — bad plans.
+
+### Cross-questions
+
+- **When not to index?** — Small table, write-heavy, low-selectivity column, or **covered** by better composite.  
+- **Redshift join spills?** — **DIST/SORT**, **fewer** columns, **pre-aggregate**, **workload management (WLM)**.
+
+---
+
+# Topic 8 — Star vs snowflake schema design
+
+**In one sentence:** **Star** = fact + **denormalized** dimensions (simpler joins); **Snowflake** = **normalized** dimensions (less redundancy, more joins).
+
+### Interview angle
+
+> “In **Kimball**-style marts I default to **star** for usability. I **snowflake** only when we **reuse** hierarchies across many dimensions or **storage** of denorm duplicates is costly. **Grain** of the fact table is non-negotiable—one row per **line item** vs **order** must be explicit.”
+
+### Star example (textual)
+
+`fact_sales(order_sk, date_sk, product_sk, customer_sk, qty, amount)`  
+`dim_product(product_sk, name, category)` — category denormalized in star.
+
+### Snowflake twist
+
+`dim_store` → `dim_region` → `dim_country` as separate tables → **more joins**, **less** duplicate region names.
+
+### SCD Type 2 (must know)
+
+**Slowly Changing Dimension Type 2:** Keep **history** when `customer` address changes.
+
+Columns: `customer_sk` **surrogate**, `natural_id`, `effective_start`, `effective_end`, `is_current`.
+
+```sql
+SELECT * FROM dim_customer
+WHERE natural_id = 'C123'
+  AND DATE '2025-04-01' BETWEEN effective_start AND COALESCE(effective_end, DATE '9999-12-31');
+```
+
+### Degenerate dimensions
+
+`order_id` on **fact** line table—no separate dim if not attribute-rich.
+
+### Production issues
+
+- **Over-snowflake** in Athena — many small joins; **denorm** judiciously for query patterns.  
+- **No SCD2** — wrong **historical** revenue by region.
+
+### Cross-questions
+
+- **SCD2 dates?** — `effective_start` / `effective_end` / `is_current`.  
+- **Fact grain?** — “**One row per order line per day**” (example)—every metric must **match** that grain.
+
+---
+
+# Topic 9 — End-to-end pipeline architecture
+
+**In one sentence:** E2E spans **ingest → store → process → serve → observe**, with **ownership**, **SLAs**, and **failure modes** documented.
+
+### Interview angle
+
+> “End-to-end I care about **data contracts** between teams, **SLAs** on **freshness**, and **runbooks** for **replay** from **raw**. I’d draw **S3 zones**, **Glue jobs**, **Catalog**, **Athena/Redshift** consumers, and **CloudWatch** alarms on **business metrics**, not only CPU.”
+
+### Reference flow (AWS)
+
+1. **Ingest:** DMS / Kinesis / SFTP → **S3 raw**.  
+2. **Process:** **Glue** curated Parquet.  
+3. **Catalog:** **Glue** tables.  
+4. **Serve:** **Athena** views; **QuickSight**; optional **Redshift** for low-latency BI.  
+5. **Orchestrate:** **MWAA** or **Step Functions**.  
+6. **Observe:** **CloudWatch** metrics, **logs**, **PagerDuty** integration.
+
+### SLIs / SLOs (impress)
+
+- **Freshness:** `max(dt)` in table **lag** vs wall clock < **24h**.  
+- **Completeness:** row count **within X%** of prior day.  
+- **Error rate:** validation failures < **Y%**.
+
+### PII masking — where?
+
+- Often **mask** in **curated** or **gold** for broad access; **raw** locked down. Say: *“Depends on **regulatory** read access to raw; default is **restrict raw**, **mask** for general analytics.”*
+
+### DR (short)
+
+- **S3** cross-region replication for critical buckets; **Glue** jobs redeployed via **IaC**; **RPO/RTO** with business.
+
+### Cross-questions
+
+- **PII?** — Layer + **LF** column permissions / **masked views**.  
+- **DR?** — **Backup**, **replication**, **replay** from raw.
+
+---
+
+# Topic 10 — RBAC, data governance & multi-layer architecture
+
+**In one sentence:** **RBAC** assigns **roles** to **actions** on **resources**; **governance** adds **classification**, **lineage**, **audit**; **layers** separate **trust zones**.
+
+### Interview angle
+
+> “**Humans** get **SSO**-federated roles; **jobs** get **service roles** with **least privilege** on **prefix**. **Lake Formation** can enforce **column** access for **Athena** users when we need **finer** than IAM path-only. **CloudTrail** audits **who called** `GetObject` / `StartQueryExecution`.”
+
+### IAM example (principle)
+
+Data engineer role: `s3:ListBucket` on bucket; `s3:GetObject` only `arn:.../curated/*`; **no** `raw/*` if unnecessary.
+
+### Lake Formation (when)
+
+- **Column/row** level for **Athena/Glue** consumers; central **LF-DB** administrator.  
+- **Tradeoff:** Operational overhead; must align **IAM** + **LF** + **S3**.
+
+### Layers (repeat with governance)
+
+| Layer | Trust | Typical policy |
+|--------|--------|----------------|
+| Raw | Low (messy) | Locked; ingestion + break-glass |
+| Curated | Medium–high | ETL roles; approved analysts |
+| Serving | High for BI | Aggregates; PII minimized |
+
+### Cross-questions
+
+- **IAM vs LF?** — IAM for **coarse** S3 paths; **LF** for **table/column** in **lake** analytics.  
+- **Audit column read?** — **CloudTrail** for API; **LF** audit logs; **Athena** workgroup logging.
+
+---
+
+# Topic 11 — On-premises → AWS migration
+
+**In one sentence:** Use **discovery**, **pilot**, **network**, then **bulk** or **CDC**, validate **continuously**, and **cut over** with **rollback**.
+
+### Interview angle
+
+> “I’d start with **inventory**: schemas, **volume**, **downtime** tolerance, **compliance**. **DMS** for **CDC** to **RDS** or **S3**; **Snowball** if **network** is the bottleneck. **Cutover** only after **row counts**, **checksums**, and **lag** SLAs are green.”
+
+### Phases
+
+1. **Assess** — dependencies, **6 Rs** (rehost, replatform, refactor…).  
+2. **Network** — **Direct Connect** / **VPN**; security review.  
+3. **Pilot** — one **schema** or **read replica** path.  
+4. **Sync** — **DMS full + CDC** or **bulk** + one-time cut.  
+5. **Validate** — counts, **spot** checksums, **application** tests.  
+6. **Cutover** — **DNS**, connection strings, **freeze** window.
+
+### DMS sketch
+
+- **Source:** Oracle / SQL Server / Postgres.  
+- **Target:** **Aurora** / **S3** (Parquet for lake).  
+- **Replication instance** in VPC; **security groups** allow source.
+
+### Production issues
+
+- **Firewall** / **TLS** to source.  
+- **LOB** / **binary** mapping.  
+- **Cutover** **underestimated** — need **rollback** DB snapshot.
+
+### Cross-questions
+
+- **Minimize cutover risk?** — **Rehearse**, **read-only** dry run, **keep** on-prem **read** path until validated, **feature flag** app routing.  
+- **Bulk vs CDC?** — **Bulk** simpler for one-time; **CDC** for **near-zero** downtime **sync**.
+
+---
+
+# Topic 12 — Data pipeline orchestration
+
+**In one sentence:** Orchestration coordinates **dependencies**, **retries**, **backfills**, **SLAs**, and **human** escalation—not just **schedule**.
+
+### Interview angle
+
+> “I’d use **MWAA** if we need **rich** Python operators and **ecosystem**; **Step Functions** for **serverless** **state machines** with **native** AWS integrations. **EventBridge** for **decoupled** **event** triggers. **Glue Workflows** when **everything** is **Glue**.”
+
+### Compare (talking points)
+
+| Tool | Strength | Caveat |
+|------|----------|--------|
+| **MWAA** | Complex DAGs, sensors, backfill | Ops, cost, upgrades |
+| **Step Functions** | Durable execution, visual | ASL complexity at scale |
+| **Glue Workflow** | Simple Glue DAG | Less flexible |
+| **EventBridge** | Rules, schedules | Not a full DAG alone |
+
+### Step Functions pattern (concept)
+
+`StartGlueJob` → `Wait` / poll → `Choice` on success → `SNS` on fail. **Map** state for **parallel** `dt` list.
+
+### Airflow pattern (concept)
+
+```python
+# Pseudocode — interview: describe DAG structure, not memorize API
+with DAG("daily_curated", schedule="@daily") as dag:
+    ingest = GlueJobOperator(task_id="ingest", job_name="...")
+    quality = PythonOperator(task_id="quality", python_callable=run_checks)
+    ingest >> quality
+```
+
+### Backfill idempotently
+
+Pass **`start_dt`**, **`end_dt`** as **job params**; **overwrite** each **partition**; **Step Functions Map** over dates.
+
+### Production issues
+
+- **Cron only** — hidden **dependencies**.  
+- **No backfill** — manual pain.  
+- **One mega-DAG** — **blast radius**.
+
+### Cross-questions
+
+- **Airflow vs Step Functions?** — **Complexity** of DAG vs **managed** states; team **skills**.  
+- **Backfill 30 days?** — **Parameterized** job + **parallel** dates + **idempotent** writes.
+
+---
+
+## CI/CD & quality (deeper bite)
+
+- **Artifact:** `s3://artifacts/glue/<git-sha>/job.py` + `common.zip`; **Glue job** points to that prefix.  
+- **IaC:** Terraform **aws_glue_job** + **IAM** role **scoped** to prefix.  
+- **Tests:** **pytest** on **pure** code; **dev** **StartJobRun** smoke with **tiny** partition.  
+- **Rollback:** Repoint job to **`git-sha-1`** or **Terraform** `artifact_version` variable.
+
+---
+
+## Quick recap — “What service when?”
+
+| Need | Often use |
+|------|-----------|
+| Managed Spark ETL | **Glue** / **EMR** |
+| SQL over lake | **Athena** |
+| Warehouse | **Redshift** |
+| OLTP migration | **DMS** → **Aurora** |
+| Orchestration | **MWAA**, **Step Functions** |
+| Events | **EventBridge**, **SQS** |
+
+---
+
+## Prep pattern (use in every interview story)
+
+**Situation → Constraint → What you built (AWS pieces) → Failure/issue → Fix → Metric (time/cost/quality).**
+
+Rehearse **one story per topic** so you can go deep on follow-ups without rambling.
