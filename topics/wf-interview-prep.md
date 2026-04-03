@@ -39,6 +39,86 @@ Each section includes **depth**, **extra examples**, and **interview angles** (w
 | **Job bookmark** | Tracks processed files/rows for incremental runs | *What breaks bookmarks?* |
 | **Workflow / Trigger** | Schedule or chain jobs | *vs Step Functions?* |
 
+### Components — answers (interview + code)
+
+**Q: How do Athena and Glue share metadata?**  
+**A:** They both use the **same** **AWS Glue Data Catalog**. A table you register in Glue (DDL, API, or crawler) is what Athena resolves when you run `SELECT` against `database.table`. Partitions in the catalog are used for **partition pruning** in Athena. No separate copy of schema—**one source of truth**.
+
+```sql
+-- Athena reads table definition from Glue Catalog
+SELECT COUNT(*) FROM curated.events WHERE dt = DATE '2025-04-03';
+```
+
+---
+
+**Q: Why not rely on crawlers alone?**  
+**A:** Crawlers **infer** types from sampled data. That can **change** run-to-run (e.g. all-null column inferred as string, later becomes int), breaking downstream SQL. **Production:** define tables with **explicit DDL** (or Terraform `aws_glue_catalog_table`), use crawlers only for **discovery** or non-critical zones.
+
+```sql
+-- Prefer explicit CTAS or DDL over crawler-only for critical tables
+CREATE TABLE curated.events (
+  event_id STRING,
+  dt DATE,
+  amount DECIMAL(18,2)
+)
+PARTITIONED BY (dt)
+STORED AS PARQUET
+LOCATION 's3://curated/events/';
+```
+
+---
+
+**Q: When is Glue Spark overkill?**  
+**A:** When data fits in **one machine** comfortably and work is **light** (filter a few MB, small JDBC extract under typical Lambda or single-node time). Use **Lambda**, **Glue Python shell**, or **Fargate** instead—**less cost** and **no cluster startup**. Spark pays off for **large** S3/parallel JDBC/**shuffle** workloads.
+
+```python
+# Heuristic: tiny input → avoid Spark if team allows
+import os
+if os.path.getsize("input.csv") < 50 * 1024 * 1024:
+    ...  # pandas / polars on single node
+else:
+    ...  # Spark / Glue ETL
+```
+
+---
+
+**Q: Lambda vs Glue Python shell?**  
+**A:** **Lambda:** event-driven, **15-minute** max, **10 GB** RAM cap, great for **per-file** S3 triggers. **Glue Python shell:** **longer** runs (check current Glue quotas), **Glue connection** to VPC JDBC, built-in Glue job metrics—better for **scheduled** “small ETL” that **exceeds Lambda limits** or needs **Glue’s** JDBC/VPC integration without Spark.
+
+```text
+Choose Lambda:  S3 event → transform 1 file → put result
+Choose pythonshell:  nightly JDBC 2 GB table → S3, runs 45 min, VPC to RDS
+```
+
+---
+
+**Q: How does Glue reach private RDS?**  
+**A:** Create a **Glue connection** (JDBC URL + subnet + **security groups**). The job role needs `glue:GetConnection`. Glue creates an **ENI** in your subnets so traffic stays private; RDS SG must **allow** the Glue connection’s SG on the DB port. S3 access is typically via **VPC endpoint** or **NAT**.
+
+```text
+Glue job → uses Connection → ENI in private subnet → SG allows 5432 → RDS
+```
+
+---
+
+**Q: What breaks bookmarks?**  
+**A:** Bookmarks track **what was already processed**. They break when: (1) you **overwrite** the same S3 **key** (bookmark thinks it’s done); (2) **compaction** rewrites files; (3) **late files** land under an old prefix the bookmark skipped. **Mitigation:** append-only keys, **reprocess** by `dt` with **idempotent** writes, or **reset** bookmark after logic change (with understanding of reprocessing scope).
+
+```python
+# Idempotent partition re-run (does not rely on bookmark for that day)
+spark.read.parquet(f"{raw}/dt={process_date}/").write.mode("overwrite").partitionBy("dt").parquet(curated)
+```
+
+---
+
+**Q: Glue Workflow vs Step Functions?**  
+**A:** **Glue Workflow:** chains **Glue** jobs, crawlers, triggers—**simple**, native console. **Step Functions:** **any** AWS API—Lambda, Glue, Batch, **wait for human**, **parallel** maps, **long** state machine—use when orchestration crosses **many services** or needs **complex branching/retries** beyond Glue-only.
+
+```text
+Glue Workflow:  crawl → job A → job B (all Glue)
+Step Functions:  Event → Lambda validate → Map over dates → Glue → SNS alert
+```
+
 ### Simple scenario (walkthrough)
 
 **Nightly** job: read **raw** JSON under `s3://raw/events/dt=2025-04-03/`, **dedupe** on `event_id`, write **Snappy Parquet** to `s3://curated/events/` with partition `dt`, register/update table `curated.events`.
@@ -124,12 +204,52 @@ if __name__ == "__main__":
     main()
 ```
 
-### Cross-questions (with angles)
+### Cross-questions — answers
 
-- **EMR vs Glue?** — Control vs managed; catalog integration; team skills.  
-- **Bookmarks + late data?** — Bookmarks aren’t a **business** late-arrival policy; add **reprocessing** by partition.  
-- **Schema drift?** — Explicit schema, **registry**, CI on DDL, **merge** with care.  
-- **VPC?** — Glue **connection** + **subnet** + **security groups**; S3 via **VPC endpoint** or NAT; **least privilege** IAM.
+**Q: EMR vs Glue?**  
+**A:** **Glue:** fully managed job execution, **Data Catalog** integration, pay per **DPU** run time, less ops. **EMR:** you choose **cluster** shape, **custom AMIs**, **long-lived** clusters for iterative work, **finer** Spark tuning. Pick **EMR** when you need **control** or **non-standard** stack; **Glue** for **catalog-centric** lake ETL with **minimal** cluster management.
+
+```text
+Glue:     script on S3 → StartJobRun → done
+EMR:      create cluster → step → optionally keep cluster for notebooks
+```
+
+---
+
+**Q: Bookmarks + late data?**  
+**A:** Bookmarks track **processed files/offsets**—they don’t encode **business rules** for lateness. If events arrive **after** the bookmark advanced, **re-run** the affected **partition(s)** (`dt`) with **idempotent** merge/dedupe. Optionally maintain a **watermark** table (`last_processed_ts`) for **API** sources.
+
+```python
+# Reprocess one day idempotently (example pattern)
+def merge_partition(spark, dt: str):
+    new_df = spark.read.parquet(f"{raw}/dt={dt}/")
+    # MERGE in Delta/Iceberg, or overwrite partition after dropDuplicates(keys)
+    new_df.dropDuplicates(["event_id"]).write.mode("overwrite").partitionBy("dt").parquet(f"{curated}/")
+```
+
+---
+
+**Q: Schema drift—how do you prevent surprises?**  
+**A:** (1) **Explicit** table DDL in Git; (2) **Glue Schema Registry** or **Avro/JSON** compatibility **BACKWARD**; (3) CI tests on **sample** files; (4) Spark `mergeSchema` only where you **accept** extra columns and cast safely.
+
+```python
+# Spark: controlled merge + cast
+df = spark.read.option("mergeSchema", "true").parquet(path)
+df = df.withColumn("amount", col("amount").cast("decimal(18,2)"))
+```
+
+---
+
+**Q: How do you secure Glue in a VPC?**  
+**A:** **Glue connection** attaches subnets/SGs; job runs with access to **private** JDBC. **IAM** role: `s3:GetObject`/`PutObject` only on required prefixes, `kms:Decrypt` for bucket keys, `glue:GetConnection`. **S3:** VPC **gateway endpoint**; avoid routing **large** data through NAT unnecessarily. **Least privilege**—no `Resource: "*"` on S3.
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["s3:GetObject", "s3:PutObject"],
+  "Resource": "arn:aws:s3:::company-curated-prod/events/*"
+}
+```
 
 ---
 
@@ -203,11 +323,37 @@ def test_normalize_email():
     assert normalize_email(None) is None
 ```
 
-### Cross-questions
+### Cross-questions — answers
 
-- **Idempotent daily batch?** — Overwrite partition `dt` or merge on **business key**; **watermark** optional.  
-- **Quality before or after curated?** — **Light** checks at ingest (reject poison); **heavy** rules on **curated** before **gold**.  
-- **Version logic vs data?** — Git tags for **code**; **partition** + **snapshot** tables for **data** history.
+**Q: What does idempotent daily batch mean—how do you implement it?**  
+**A:** Running the job **twice** for the same **business day** does **not** duplicate rows. Implement by: **overwrite** only that day’s **partition** (`dt`); or **`MERGE`** / upsert on **natural key**; or **truncate-and-load** staging then swap. Spark example for partition overwrite:
+
+```python
+out = transform(raw_df)
+out.write.mode("overwrite").option("partitionOverwriteMode", "dynamic").partitionBy("dt").parquet("s3://curated/facts/")
+```
+
+---
+
+**Q: Where do you put data quality checks—before or after curated?**  
+**A:** **Both**, with different strictness. **Ingest:** reject **poison** (malformed JSON, impossible types) → quarantine or DLQ. **Curated:** **business rules** (referential sanity, aggregates vs source). **Gold:** **reporting** checks (revenue ties to finance). Say **defense in depth**, not one gate only.
+
+```python
+# Ingest: hard fail tiny sample
+assert len(rows) > 0, "empty batch"
+bad_rate = len(bad) / max(len(rows), 1)
+if bad_rate > 0.01:
+    raise RuntimeError("too many bad rows")
+```
+
+---
+
+**Q: How do you version pipeline logic vs data?**  
+**A:** **Logic:** Git tags / semver on deployable artifact (`job.py` hash in S3). **Data:** **time partitions** (`dt`), **snapshot** tables (`orders_as_of_2025q1`), or **SCD2** dimensions. Auditors care **which code version** produced **which** partition.
+
+```text
+s3://artifacts/glue/v1.2.3/job.py  →  writes  s3://curated/sales/dt=2025-04-01/
+```
 
 ---
 
@@ -284,11 +430,44 @@ class JsonFormatter(logging.Formatter):
 # logger.addHandler(handler); record with extra_fields={'run_id': '...'}
 ```
 
-### Cross-questions
+### Cross-questions — answers
 
-- **Why threads don’t speed CPU Python?** — **GIL**; use **processes** or **native/Spark**.  
-- **Lambda vs EC2 job?** — **Volume**, **duration**, **memory**, **VPC** cold start; Lambda for **short** parallel **shards**; **long** unified job on **Batch/Fargate/EMR**.  
-- **Duplicate retry?** — **Idempotent** keys, **deterministic** writes, **merge** semantics.
+**Q: Why don’t threads speed up CPU-bound Python?**  
+**A:** **CPython** uses a **Global Interpreter Lock (GIL)**: only one thread runs Python bytecode at a time for CPU work. Threads still help **I/O wait** (releases GIL during I/O). For **CPU** parallelism use **`multiprocessing`**, **native** libs (NumPy calls C), or **Spark**.
+
+```python
+# CPU-bound: processes (simplified)
+from concurrent.futures import ProcessPoolExecutor
+
+def heavy(x: int) -> int:
+    return sum(i * i for i in range(x))
+
+with ProcessPoolExecutor() as ex:
+    list(ex.map(heavy, range(1000, 1100)))
+```
+
+---
+
+**Q: Lambda concurrent invocations vs one big EC2/Batch job?**  
+**A:** **Lambda:** **sharded** work (e.g. **one S3 prefix per invocation**), **15 min** cap, **automatic** scale, pay per ms. **Batch/Fargate/EC2:** **single** long job, **hours** of runtime, **predictable** resources, **VPC** without per-invocation cold start pain. Choose Lambda when **embarrassingly parallel** and **short**; choose Batch when **single** long pipeline or **>15 min**.
+
+```text
+10k small files:  Lambda map (capped concurrency) or Step Functions Map
+10 TB single scan:  Glue / EMR / Batch job
+```
+
+---
+
+**Q: How do you avoid duplicate side effects when retries run twice?**  
+**A:** **Idempotency keys** on APIs (`Idempotency-Key` header); **deterministic** S3 keys and **overwrite**; **MERGE** in warehouse; **dedupe** by primary key downstream; message systems **at-least-once** → consumer **dedupes**.
+
+```python
+import hashlib
+
+def deterministic_s3_key(order_id: str, dt: str) -> str:
+    h = hashlib.sha256(f"{order_id}|{dt}".encode()).hexdigest()[:16]
+    return f"curated/orders/dt={dt}/order_id={order_id}/{h}.parquet"
+```
 
 ---
 
@@ -354,11 +533,43 @@ attrs: last_cursor, last_success_ts, rows_ingested
 - **Duplicate pages** — **idempotent** sink by natural key.  
 - **Lambda 15 min** — **Step Functions** loop + **checkpoint**, or **ECS** worker.
 
-### Cross-questions
+### Cross-questions — answers
 
-- **Schema change?** — **Additive** columns; **registry**; **quarantine** unknown fields.  
-- **Long pagination?** — **Step Functions** state machine + **Lambda** steps; or **ECS** long runner.  
-- **Secrets?** — **Secrets Manager** + **IAM**; never in env vars in repo.
+**Q: How do you handle API schema changes without dropping events?**  
+**A:** Treat unknown fields as **optional**; land **raw JSON** as-is; **parse** known columns in curated step. Use **schema registry** with **backward-compatible** rules; **version** API responses (`schema_version` column). **Quarantine** records that fail **required** field checks.
+
+```python
+def parse_event(raw: dict) -> dict:
+    return {
+        "event_id": raw["event_id"],
+        "amount": raw.get("amount", 0.0),
+        "promo_code": raw.get("promo_code"),  # new optional field — old events OK
+    }
+```
+
+---
+
+**Q: Lambda timeout vs Step Functions for long pagination?**  
+**A:** **Lambda** alone is capped at **15 minutes**. **Pattern:** Step Functions **loop**—each Lambda invocation processes **one page**, writes **checkpoint** to DynamoDB, returns `next_cursor` to Step Functions, which **invokes** Lambda again until **no cursor**. For **hours** of streaming pagination, **ECS/Fargate** or **Glue Python shell** may be simpler.
+
+```text
+Step Functions:  Choice(cursor exists?) → Lambda(fetch page) → Update DynamoDB → loop
+```
+
+---
+
+**Q: Where do you store secrets?**  
+**A:** **AWS Secrets Manager** (rotation) or **SSM Parameter Store** (SecureString). Glue/Lambda/ECS get secrets via **IAM** at runtime—**never** commit secrets to Git. Reference by **ARN** in job config.
+
+```python
+import boto3
+
+def get_api_key(secret_arn: str) -> str:
+    sm = boto3.client("secretsmanager", region_name="us-east-1")
+    resp = sm.get_secret_value(SecretId=secret_arn)
+    import json
+    return json.loads(resp["SecretString"])["api_key"]
+```
 
 ---
 
@@ -415,11 +626,45 @@ def validate_batch(rows: list[dict]) -> tuple[list[dict], list[dict]]:
 - **Brittle rules** — `len(email) > 3` rejects valid edge cases.  
 - **0 rows green** — always assert **min row count** or **freshness**.
 
-### Cross-questions
+### Cross-questions — answers
 
-- **Backward compatible example?** — Add `promo_code` optional; writers populate; old Athena queries unchanged.  
-- **CI for validators?** — **pytest** with **golden** bad/good JSON fixtures.  
-- **Quarantine vs fail?** — **Quarantine** when **partial** bad data expected; **fail** when **batch** integrity required (financial close).
+**Q: Give a backward-compatible schema change example.**  
+**A:** Add a new **optional** column `promo_code STRING` to events. **Old** producers omit it → **NULL** in queries. **Old** Athena `SELECT event_id, amount` still works. **Breaking** would be **renaming** `amount` → `amt` without dual-write period.
+
+```sql
+-- After adding column in Glue/DDL — old files still readable with NULL for new column
+SELECT event_id, amount, promo_code FROM curated.events WHERE dt = DATE '2025-04-01';
+```
+
+---
+
+**Q: How do you test validators in CI?**  
+**A:** **pytest** with **fixture files**: `good.jsonl`, `bad_missing_id.jsonl`, `bad_negative_amount.jsonl`. Assert **counts** of good/bad and **error messages**. Run on every PR.
+
+```python
+# tests/test_validate.py
+import json
+from pathlib import Path
+
+def test_rejects_negative_amount():
+    from pipeline.validate import validate_batch
+    rows = [{"event_id": "550e8400-e29b-41d4-a716-446655440000", "amount": -1.0}]
+    good, bad = validate_batch(rows)
+    assert len(good) == 0 and len(bad) == 1
+```
+
+---
+
+**Q: Quarantine vs fail the job—when?**  
+**A:** **Fail** when the **batch** cannot be trusted (financial totals, more than 1% bad rows, **zero** rows). **Quarantine** when **some** bad rows are expected (messy vendor) but **most** rows are valid—write bad to `s3://quarantine/...` and **alert** if rate spikes.
+
+```python
+if len(good) == 0:
+    raise RuntimeError("entire batch invalid — fail")
+if len(bad) / len(rows) > 0.01:
+    raise RuntimeError("too many bad rows — fail")
+write_quarantine(bad)
+```
 
 ---
 
@@ -502,10 +747,36 @@ FROM flags;
 - **Athena:** Pay per **data scanned** → **partition** + **columnar** + **limit columns**.  
 - **Redshift:** **DISTKEY** on large fact to align with big dimension; **SORTKEY** for filter columns.
 
-### Cross-questions
+### Cross-questions — answers
 
-- **ROW_NUMBER vs RANK?** — Dedupe use **`ROW_NUMBER() ... WHERE rn=1`**; leaderboards with ties use **RANK**.  
-- **Athena join cost?** — **Scan**-driven; **partition** both sides if possible.
+**Q: ROW_NUMBER vs RANK—when use which?**  
+**A:** **`ROW_NUMBER()`** assigns **unique** integers 1..N in the partition—use for **deduplication** (“keep one row per key”). **`RANK()`** gives **same** rank to ties and **skips** numbers after a tie (1,2,2,4)—use for **leaderboards** where ties matter. **`DENSE_RANK()`** ties but **no gaps** (1,2,2,3).
+
+```sql
+-- Dedupe: one row per customer_id (pick arbitrary row among ties)
+WITH x AS (
+  SELECT *, ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY updated_at DESC) AS rn
+  FROM curated.customers
+)
+SELECT * FROM x WHERE rn = 1;
+
+-- Leaderboard with ties
+SELECT customer_id, revenue, RANK() OVER (ORDER BY revenue DESC) AS rnk FROM daily_revenue;
+```
+
+---
+
+**Q: Athena join cost—what drives it?**  
+**A:** **Bytes scanned** in S3 (Parquet column + partition pruning). **No** row indexes. Reduce cost: **partition** both tables on **join/filter** columns (`dt`), **column projection** (`SELECT` needed cols only), **bucket** or **sort** data if team uses it, avoid **broadcast** hints that hide huge builds—**filter before join**.
+
+```sql
+-- Good: prune partitions first
+SELECT f.order_id, d.name
+FROM fact_orders f
+JOIN dim_customer d ON f.customer_id = d.customer_id
+WHERE f.dt BETWEEN DATE '2025-04-01' AND DATE '2025-04-07'
+  AND d.dt = DATE '2025-04-07';  -- if dim is partitioned; adjust to model
+```
 
 ---
 
@@ -554,10 +825,29 @@ Access patterns drive **PK/SK**; **GSI** for alternate lookups. **Avoid** hot pa
 - **Redshift** — **wrong** DISTKEY → massive **network** shuffle.  
 - **Missing** `ANALYZE** / **stats** — bad plans.
 
-### Cross-questions
+### Cross-questions — answers
 
-- **When not to index?** — Small table, write-heavy, low-selectivity column, or **covered** by better composite.  
-- **Redshift join spills?** — **DIST/SORT**, **fewer** columns, **pre-aggregate**, **workload management (WLM)**.
+**Q: When would you NOT add an index?**  
+**A:** **Tiny** tables (sequential scan is cheap). **Write-heavy** tables where every extra index slows **INSERT/UPDATE**. **Low-selectivity** columns (e.g. boolean `is_active`). **Redundant** index already **covered** by composite leading prefix. Always confirm with **`EXPLAIN`** and **workload** (read vs write ratio).
+
+```sql
+-- Before adding index: baseline plan
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM orders WHERE customer_id = $1;
+```
+
+---
+
+**Q: Redshift join spills to disk—what do you tune?**  
+**A:** **DISTKEY** alignment so fact and large dimension **co-locate**; **SORTKEY** on **filter** columns; **reduce** selected columns; **pre-aggregate** to smaller fact; increase **work_mem**-like settings via **WLM** queue memory; break query into **CTEs** materialized to temp tables if needed (tradeoffs).
+
+```sql
+-- Illustrative: smaller right-hand side via pre-aggregate
+WITH daily AS (
+  SELECT customer_id, dt, SUM(amount) AS amt FROM fact_sales GROUP BY 1, 2
+)
+SELECT * FROM daily d JOIN dim_customer c ON d.customer_id = c.id;
+```
 
 ---
 
@@ -599,10 +889,27 @@ WHERE natural_id = 'C123'
 - **Over-snowflake** in Athena — many small joins; **denorm** judiciously for query patterns.  
 - **No SCD2** — wrong **historical** revenue by region.
 
-### Cross-questions
+### Cross-questions — answers
 
-- **SCD2 dates?** — `effective_start` / `effective_end` / `is_current`.  
-- **Fact grain?** — “**One row per order line per day**” (example)—every metric must **match** that grain.
+**Q: What is SCD Type 2 and where do effective dates live?**  
+**A:** **SCD2** preserves **history** when a dimension attribute changes (e.g. customer **region**). Each change adds a **new row** with new **surrogate key**; **natural_id** ties versions. Columns: **`effective_start`**, **`effective_end`** (or `NULL` / high date = open), **`is_current`**. Queries use **`BETWEEN`** on **as-of** date.
+
+```sql
+SELECT customer_sk, region
+FROM dim_customer
+WHERE natural_id = 'C123'
+  AND DATE '2025-04-01' BETWEEN effective_start AND COALESCE(effective_end, DATE '9999-12-31');
+```
+
+---
+
+**Q: What is fact table grain?**  
+**A:** **One row per** a single **business event** at the **lowest** level you store—e.g. **one row per order line**, not per order, if line-level discounts matter. **Every measure** on that table must be **additive** or **semi-additive** consistently with that grain. Mixing grains in one fact causes **double-counting** in rollups.
+
+```text
+Grain: one row per (order_id, line_id) — revenue_line = qty * unit_price
+Wrong:  same fact also stores order-level shipping duplicated on every line — document allocation rules
+```
 
 ---
 
@@ -637,10 +944,29 @@ WHERE natural_id = 'C123'
 
 - **S3** cross-region replication for critical buckets; **Glue** jobs redeployed via **IaC**; **RPO/RTO** with business.
 
-### Cross-questions
+### Cross-questions — answers
 
-- **PII?** — Layer + **LF** column permissions / **masked views**.  
-- **DR?** — **Backup**, **replication**, **replay** from raw.
+**Q: Where do you implement PII masking?**  
+**A:** Often **not** in raw (immutable audit copy); **mask/hash/tokenize** in **curated** or **gold** for broad access. **Lake Formation** column-level permissions, **Athena** **views** with `sha2(email)`, or **Dynamic Data Masking** patterns in warehouse. **Raw** access: **break-glass** role + **audit**.
+
+```sql
+-- Athena view: expose masked email for analysts
+CREATE VIEW curated.customer_safe AS
+SELECT
+  customer_id,
+  CASE WHEN current_user IN ('role_privileged') THEN email ELSE regexp_replace(email, '(.*)@', '***@') END AS email
+FROM curated.customer_pii;
+```
+
+---
+
+**Q: How do you approach disaster recovery for the data lake?**  
+**A:** **S3** cross-region **replication** for critical buckets; **versioning** + **lifecycle**; **Glue** job definitions from **IaC** (rebuild in new region). **RPO/RTO** with business. **Replay** pipeline from **raw** if curated lost but raw intact.
+
+```text
+RPO: how much data can we lose (e.g. 1 hour of raw)
+RTO: how fast restore (e.g. 4 hours to flip reads to secondary region)
+```
 
 ---
 
@@ -669,10 +995,26 @@ Data engineer role: `s3:ListBucket` on bucket; `s3:GetObject` only `arn:.../cura
 | Curated | Medium–high | ETL roles; approved analysts |
 | Serving | High for BI | Aggregates; PII minimized |
 
-### Cross-questions
+### Cross-questions — answers
 
-- **IAM vs LF?** — IAM for **coarse** S3 paths; **LF** for **table/column** in **lake** analytics.  
-- **Audit column read?** — **CloudTrail** for API; **LF** audit logs; **Athena** workgroup logging.
+**Q: IAM vs Lake Formation—when use which?**  
+**A:** **IAM** on **S3** is **prefix/object** level—good for **engineering** roles and **jobs**. **Lake Formation** adds **Glue Catalog**–aware **table/column/row** policies for **Athena/Glue** users without mapping every path. Use **LF** when **analysts** need **different columns** from same table; use **IAM-only** when simple **bucket separation** is enough.
+
+```text
+IAM:     role glue-etl → s3://lake/curated/sales/*
+LF:      analyst group → SELECT on sales except columns (ssn, cc_number)
+```
+
+---
+
+**Q: How do you audit who read a column in Athena?**  
+**A:** **CloudTrail** logs **`StartQueryExecution`** (who ran what), **Athena** workgroup **query results** to S3 with **logging** enabled; **LF** **audit** logs for access checks. True **cell-level** “who read column X” is **hard**—combine **query text** logs + **table/column** grants + **least privilege**. For strict needs, **masked views** + **no direct** base table access.
+
+```text
+CloudTrail:  user ARN, time, StartQueryExecution
+S3 logs:     query result location per workgroup
+LF:          Grant/revoke audit trail
+```
 
 ---
 
@@ -705,10 +1047,26 @@ Data engineer role: `s3:ListBucket` on bucket; `s3:GetObject` only `arn:.../cura
 - **LOB** / **binary** mapping.  
 - **Cutover** **underestimated** — need **rollback** DB snapshot.
 
-### Cross-questions
+### Cross-questions — answers
 
-- **Minimize cutover risk?** — **Rehearse**, **read-only** dry run, **keep** on-prem **read** path until validated, **feature flag** app routing.  
-- **Bulk vs CDC?** — **Bulk** simpler for one-time; **CDC** for **near-zero** downtime **sync**.
+**Q: How do you minimize cutover risk?**  
+**A:** **Rehearse** cutover in lower env; **dual-run** (compare counts/checksums); **read-only** freeze window; **DMS CDC** until **replication lag** is under the agreed threshold (e.g. seconds); **rollback** plan: **DNS** back, **DB snapshot** restore, **feature flag** to old connection string. **Validate** app smoke tests before flipping writes.
+
+```text
+Pre-cutover:  row counts match, checksum sample, latency OK
+Cutover:      stop writes → final sync → point apps → verify → enable writes
+Rollback:     documented decision tree if checksum fails
+```
+
+---
+
+**Q: Bulk load vs CDC—tradeoffs?**  
+**A:** **Bulk** (one-time `COPY`/export/import): **simpler**, good for **initial** load or **small** DB; **downtime** or **read-only** window often needed for final consistency. **CDC** (DMS, Debezium): **continuous** sync, **lower** cutover downtime, **more** moving parts (replication slot, **transformation** of changes). Many migrations: **bulk** for baseline + **CDC** for catch-up.
+
+```text
+Bulk:     mysqldump → S3 → Glue → OR DMS full load only
+CDC:      DMS full load + ongoing replication until cutover
+```
 
 ---
 
@@ -753,10 +1111,41 @@ Pass **`start_dt`**, **`end_dt`** as **job params**; **overwrite** each **partit
 - **No backfill** — manual pain.  
 - **One mega-DAG** — **blast radius**.
 
-### Cross-questions
+### Cross-questions — answers
 
-- **Airflow vs Step Functions?** — **Complexity** of DAG vs **managed** states; team **skills**.  
-- **Backfill 30 days?** — **Parameterized** job + **parallel** dates + **idempotent** writes.
+**Q: Airflow (MWAA) vs Step Functions—how do you choose?**  
+**A:** **MWAA:** Python **operators**, huge **ecosystem** (DB, Spark, sensors), **backfill** via CLI/UI, team knows Airflow. **Ops:** upgrades, cost, VPC. **Step Functions:** **serverless**, **native** AWS service integrations, **per-state** retry/visual **ASL**, great for **Lambda/Glue** chains and **human approval** steps. **Simpler** ops but **ASL** can grow large. Pick **MWAA** for **complex** data DAGs + Python; **Step Functions** for **event-driven** **serverless** pipelines.
+
+```json
+{
+  "Comment": "Minimal Step Functions → Glue → Choice",
+  "StartAt": "RunGlue",
+  "States": {
+    "RunGlue": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": { "JobName": "curate_daily" },
+      "End": true
+    }
+  }
+}
+```
+
+---
+
+**Q: How do you backfill 30 days idempotently?**  
+**A:** Parameterize job with **`start_dt`**, **`end_dt`**. For each `dt`, **overwrite** that **partition** or **MERGE** with **natural keys**. **Parallelize** with **Step Functions Map** or **Airflow** `for` with **pool** limit. **Idempotency:** same `dt` run twice = same result.
+
+```python
+# Airflow-style idea: mapped tasks per date
+from datetime import date, timedelta
+
+def backfill_dates(start: date, end: date):
+    d = start
+    while d <= end:
+        run_glue(process_date=d.isoformat())  # each run overwrites dt partition
+        d += timedelta(days=1)
+```
 
 ---
 
@@ -766,6 +1155,41 @@ Pass **`start_dt`**, **`end_dt`** as **job params**; **overwrite** each **partit
 - **IaC:** Terraform **aws_glue_job** + **IAM** role **scoped** to prefix.  
 - **Tests:** **pytest** on **pure** code; **dev** **StartJobRun** smoke with **tiny** partition.  
 - **Rollback:** Repoint job to **`git-sha-1`** or **Terraform** `artifact_version` variable.
+
+### CI/CD — questions & answers
+
+**Q: How do you package and deploy a Glue job?**  
+**A:** Build **versioned** artifacts in CI: upload `job.py` + `dependencies.zip` (or **wheel**) to **S3**; **Terraform/CloudFormation** sets `script_location` and `--extra-py-files`. **Promote** same **hash** across dev → qa → prod with **different** parameters/IAM.
+
+```bash
+# CI (concept)
+aws s3 cp glue_jobs/ingest/job.py s3://artifacts/glue/${GIT_SHA}/ingest/job.py
+aws s3 cp build/deps.zip s3://artifacts/glue/${GIT_SHA}/deps.zip
+terraform apply -var="glue_script_hash=${GIT_SHA}"
+```
+
+---
+
+**Q: How do you validate deployment before prod?**  
+**A:** **Smoke** `StartJobRun` in **QA** with **small** `PROCESS_DATE` or **limit**; assert **SUCCEEDED** and **row counts** greater than zero; optional **Athena** query on output path. **Automate** in pipeline after **apply**.
+
+```python
+import boto3, time
+
+def wait_job(job_name: str, run_id: str) -> str:
+    glue = boto3.client("glue")
+    while True:
+        r = glue.get_job_run(JobName=job_name, RunId=run_id)["JobRun"]
+        s = r["JobRunState"]
+        if s in ("SUCCEEDED", "FAILED", "STOPPED", "TIMEOUT"):
+            return s
+        time.sleep(10)
+```
+
+---
+
+**Q: Rollback strategy?**  
+**A:** Keep **previous** S3 artifact prefix; **Terraform** `artifact_version` variable **revert** to last good **git tag**; **Glue job** default args point to known-good script. **Data** rollback: **re-run** idempotent job for affected **partitions** from **raw**, not “delete S3” blindly.
 
 ---
 
