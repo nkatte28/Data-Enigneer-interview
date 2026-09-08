@@ -15,6 +15,7 @@ By the end of this topic, you should be able to:
 
 ---
 
+
 ## 📖 How to Approach Data Pipeline Design and Implementation
 
 When designing a data pipeline, I follow a structured process that focuses on understanding the business requirements, designing a scalable architecture, implementing reliable transformations, and ensuring monitoring and data quality.
