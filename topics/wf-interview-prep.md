@@ -51,6 +51,8 @@ SELECT COUNT(*) FROM curated.events WHERE dt = DATE '2025-04-03';
 
 ---
 
+
+
 **Q: Why not rely on crawlers alone?**  
 **A:** Crawlers **infer** types from sampled data. That can **change** run-to-run (e.g. all-null column inferred as string, later becomes int), breaking downstream SQL. **Production:** define tables with **explicit DDL** (or Terraform `aws_glue_catalog_table`), use crawlers only for **discovery** or non-critical zones.
 
