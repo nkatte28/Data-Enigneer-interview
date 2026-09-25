@@ -963,6 +963,10 @@ These are the places where people commonly make technically incorrect statements
 
 ---
 
+“Z-ORDER and liquid clustering both improve query performance by improving data locality so Delta's file statistics can skip irrelevant files. With Z-ORDER, I explicitly run OPTIMIZE ... ZORDER BY on frequently filtered, often high-cardinality columns. Liquid clustering is the newer Databricks approach: clustering keys are defined at the table level, there are no rigid physical partition boundaries, and the layout can evolve incrementally as query patterns change. If I change the clustering keys, I don't necessarily need an immediate full-table rewrite. For new Databricks tables, I would generally prefer liquid clustering over designing new Z-ORDER strategies.”
+
+----
+
 # 15. Overall Interview Storyline
 
 If someone asks you to design a Databricks platform, a strong answer structure is:
@@ -970,3 +974,5 @@ If someone asks you to design a Databricks platform, a strong answer structure i
 > “I first understand source systems, volume, velocity, data formats, business SLAs, and consumption requirements. Then I choose batch or streaming ingestion and land raw data into Bronze, typically using Auto Loader for cloud files or CDC/native connectors for databases. Silver handles cleansing, deduplication, data quality, CDC, and MERGE logic, while Gold provides dimensional models and business-ready aggregates. I use Delta Lake for ACID transactions, schema enforcement/evolution, time travel, CDF, and efficient DML. For performance I manage file size and layout using OPTIMIZE, liquid clustering, data skipping, and predictive optimization. Unity Catalog provides RBAC, row filters, column masking, lineage, auditability, storage governance, and sharing. Workflows/DABs handle orchestration and CI/CD, and I select jobs or serverless compute based on workload characteristics. Finally, I monitor quality, reliability, SLAs, and cost through observability, billing data, tagging, and alerts.”
 
 That is the level of answer that shows you understand **Databricks as a platform**, not just individual features.
+
+
